@@ -1,0 +1,6 @@
+node_modules/
+dist/
+_backup_v1.0/
+*.bundle
+.DS_Store
+Thumbs.db
