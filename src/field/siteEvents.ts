@@ -14,9 +14,11 @@ import { playBossIntro, setThreat } from './cine';
 import { dust, phonePhoto, GroundRing } from './fx';
 import { runQTE, qteActive } from './qte';
 import { PoliceCar } from './police';
+import { bark } from './sound';
 import * as THREE from 'three';
 import type { GameApp, AnyObj } from './legacy';
-import { buildPerson, buildDog, animateWalk, animateDog, ROAD_Z } from './npc';
+import { buildPerson, buildDog, animateWalk, animateDog, buildScooter, ROAD_Z } from './npc';
+import { SM } from './legacy';
 import * as ui from './ui';
 import * as sfx from './sfx';
 
@@ -34,12 +36,14 @@ export interface EventHost {
   truckPos(): { x: number; z: number };
 }
 
-type Kind = 'uncle' | 'kid' | 'dog' | 'owner' | 'chief' | 'auntie' | 'police';
-interface Actor { kind: Kind; g: THREE.Group; state: string; t: number; target?: THREE.Vector3; cd?: number }
+type Kind = 'uncle' | 'kid' | 'dog' | 'owner' | 'chief' | 'auntie' | 'police' | 'neighbor';
+interface Actor { kind: Kind; g: THREE.Group; state: string; t: number; target?: THREE.Vector3; cd?: number; veh?: THREE.Group; path?: [number, number][] }
 
 type UncleChoice = '' | 'explain' | 'lie' | 'secret' | 'ignore' | 'order';
 
 const CKSV = new THREE.Vector3(0, 0, 0);
+/** 阿姨家的界樁 (CKSV 西北邊的田埂) */
+const AUNTIE_STAKE = { x: -21, z: 7 };
 
 export class SiteEvents {
   actors: Actor[] = [];
@@ -59,6 +63,8 @@ export class SiteEvents {
   private policeArgued = false;
   private policeCar: PoliceCar | null = null;
   private guard: GroundRing | null = null;
+  /** 阿姨家的界樁 */
+  private stake: THREE.Object3D | null = null;
   bumps: string[] = [];
   private tiltTarget = 0;
   /** 給第二天用：阿黃 / 小朋友的結果 */
@@ -74,6 +80,13 @@ export class SiteEvents {
   debugUncle() { if (!this.actors.some(a => a.kind === 'uncle')) this.uncleTimer = 0.1; }
   /** 地主 / 里長馬上出現 (量完天線高後) */
   debugOwner() { this.ownerDone = false; }
+  /** 阿姨馬上騎機車過來 (會切到收工階段) */
+  debugAuntie() {
+    this.actors.filter(a => a.kind === 'auntie' || a.kind === 'neighbor').forEach(a => this.remove(a));
+    if (this.stake) { this.h.app.sceneManager.scene.remove(this.stake); this.stake = null; }
+    this.auntieDone = false;
+    this.spawnAuntie();
+  }
   /** 地主報警：警車馬上出發 */
   debugPolice() {
     if (this.policeCar) return;
@@ -99,6 +112,7 @@ export class SiteEvents {
     this.policeCar?.dispose();
     this.policeCar = null;
     this.guard?.hide();
+    if (this.stake) { this.h.app.sceneManager.scene.remove(this.stake); this.stake = null; }
     this.bumps = [];
     this.tiltTarget = 0;
     this.dogOutcome = this.kidsOutcome = '';
@@ -141,6 +155,7 @@ export class SiteEvents {
     let firstKid = true;
     (s.actors || []).forEach((o: AnyObj) => {
       if (o.state === 'leave') return;
+      if (o.kind === 'auntie' || o.kind === 'neighbor') { if (o.kind === 'auntie' && !['toBike', 'rideAway'].includes(o.state)) this.auntieDone = false; return; } // 阿姨那段重來
       const a = this.spawn(o.kind, o.x, o.z);
       a.t = o.t || 0;
       // 對話中、拍照中、登場運鏡中的狀態不能原樣還原：改成「再來一次」
@@ -188,6 +203,7 @@ export class SiteEvents {
     else if (kind === 'kid') { g = buildPerson({ shirt: 0xfbc02d, pants: 0x1e3a5f, hat: 'cap' }); g.scale.setScalar(0.66); }
     else if (kind === 'owner') g = buildPerson({ shirt: 0x8d6e63, pants: 0x37474f, hat: 'straw', skin: 0xa86f45 });
     else if (kind === 'chief') g = buildPerson({ shirt: 0xeeeeee, pants: 0x263238, hat: null, skin: 0xc28a62 });
+    else if (kind === 'neighbor') g = buildPerson({ shirt: 0x546e7a, pants: 0x3e2723, hat: 'straw', skin: 0xa8703f });
     else if (kind === 'police') g = buildPerson({ shirt: 0x9cc3e6, pants: 0x1a2a4a, hat: 'police', skin: 0xc68a5e });
     else if (kind === 'auntie') g = buildPerson({ shirt: 0xe91e63, pants: 0x4a148c, hat: 'helmet', skin: 0xd09a72 });
     else g = buildPerson({ shirt: 0x7cb342, pants: 0x5d4037, hat: 'straw', skin: 0xb07850 });
@@ -205,6 +221,7 @@ export class SiteEvents {
   private remove(a: Actor) {
     const sm = this.h.app.sceneManager;
     sm.scene.remove(a.g);
+    if (a.veh) sm.scene.remove(a.veh);
     const i = sm.interactiveObjects.indexOf(a.g); if (i > -1) sm.interactiveObjects.splice(i, 1);
     this.actors = this.actors.filter(x => x !== a);
   }
@@ -260,6 +277,7 @@ export class SiteEvents {
       } else if (this.forceBump ? this.forceBump === 'dog' : Math.random() < 0.5) {
         // 從產業道路上跑過來 (路面沒有高草，鏡頭看得到)
         const d = this.spawn('dog', -9.2, 30);
+        bark(30, 3);
         this.intro(d, [d], '土狗　阿黃', '腳架衝撞者', '快跑到腳架前的黃圈擋住牠！', () => { d.state = 'rush'; d.t = 0; });
       } else {
         const k1 = this.spawn('kid', -9.4, 29);
@@ -338,6 +356,8 @@ export class SiteEvents {
           }
           if (a.kind === 'dog' && a.state === 'rush') {
             dust.trail(a.g, dt);
+            a.cd = (a.cd ?? 0.3) - dt;
+            if (a.cd <= 0) { a.cd = 1.1 + Math.random() * 0.9; bark(Math.hypot(p.x - a.g.position.x, p.z - a.g.position.z), 2); }
             // 腳架前面的站位圈：玩家站進去就擋得住
             const g = this.guardRing();
             if (!g.visible) {
@@ -350,6 +370,7 @@ export class SiteEvents {
               g.hide();
               sfx.thud();
               ui.toast('你擋在腳架前面，阿黃緊急煞車……搖搖尾巴跑走了。', 'good', 3000);
+              bark(3, 1, true);
               this.h.addPR(1, '跑到腳架前擋住阿黃');
               if (!this.dogOutcome) this.dogOutcome = 'stopped';
               a.state = 'stopped'; a.t = 0;
@@ -399,14 +420,15 @@ export class SiteEvents {
         return;
       }
       case 'police': return this.stepPolice(a, dt, p);
-      case 'auntie': {
-        if (a.state === 'walkIn') {
-          if (this.walk(a, p.x + 1.5, p.z - 1.2, 1.5, dt) || Math.hypot(p.x - a.g.position.x, p.z - a.g.position.z) < 2.2) a.state = 'wait';
+      case 'auntie': return this.stepAuntie(a, dt, p);
+      case 'neighbor': {
+        if (a.state === 'rush') {
+          if (this.walk(a, p.x - 1.2, p.z + 1.2, 2.6, dt) || Math.hypot(p.x - a.g.position.x, p.z - a.g.position.z) < 2.2) { a.state = 'wait'; }
         } else if (a.state === 'wait') {
           this.face(a, p.x, p.z);
-          if (this.canTalk()) { a.state = 'talk'; this.talkAuntie(a); }
+          if (this.canTalk()) { a.state = 'talk'; this.talkNeighbor(a); }
         } else if (a.state === 'leave') {
-          if (this.walk(a, -9, 30, 1.5, dt)) this.remove(a);
+          if (this.walk(a, -38, -4, 1.5, dt)) this.remove(a);
         }
         return;
       }
@@ -603,21 +625,159 @@ export class SiteEvents {
   }
 
   // ---------------------------------------------------------------- 阿姨 (地界)
+  /** 阿姨騎機車從產業道路口過來 */
   private spawnAuntie() {
     if (this.auntieDone || this.h.phase() !== 'packup') return;
     this.auntieDone = true;
-    this.spawn('auntie', -9, 26);
+    const sm = this.h.app.sceneManager;
+    const a = this.spawn('auntie', -9, 44);
+    a.g.visible = false;
+    const sc = buildScooter({ shirt: 0xe91e63, pants: 0x4a148c, skin: 0xd09a72, body: 0xf5f5f5 });
+    sc.position.set(-9, sm.heightAt(-9, 44), 44);
+    sm.scene.add(sc);
+    a.veh = sc;
+    a.state = 'ride';
+    sfx.honk(20);
+  }
+
+  private stepAuntie(a: Actor, dt: number, p: THREE.Vector3) {
+    const sm = this.h.app.sceneManager;
+    const sc = a.veh;
+    const rideTo = (tx: number, tz: number, speed: number): boolean => {
+      if (!sc) return true;
+      const dx = tx - sc.position.x, dz = tz - sc.position.z, d = Math.hypot(dx, dz);
+      if (d < 0.3) return true;
+      const st = Math.min(d, speed * Math.min(1, d / 3 + 0.3) * dt);
+      sc.position.x += dx / d * st; sc.position.z += dz / d * st;
+      sc.position.y = sm.heightAt(sc.position.x, sc.position.z);
+      sc.rotation.y = Math.atan2(-dz, dx);
+      return false;
+    };
+    const mount = (on: boolean) => {
+      if (!sc) return;
+      (sc.userData.rider as THREE.Object3D).visible = on;
+      a.g.visible = !on;
+      if (!on) {
+        // 下車：站在機車左邊
+        const side = new THREE.Vector3(Math.sin(sc.rotation.y), 0, Math.cos(sc.rotation.y)).multiplyScalar(-0.7);
+        a.g.position.set(sc.position.x + side.x, sm.heightAt(sc.position.x + side.x, sc.position.z + side.z), sc.position.z + side.z);
+      }
+    };
+    switch (a.state) {
+      case 'ride': {
+        // 騎到玩家附近 (玩家走動也會跟過去)
+        if (!sc) { a.state = 'walkIn'; a.g.visible = true; return; }
+        const d = new THREE.Vector3(sc.position.x - p.x, 0, sc.position.z - p.z);
+        const L = d.length();
+        if (L < 4) { mount(false); a.state = 'walkIn'; return; }
+        d.normalize();
+        rideTo(p.x + d.x * 3.4, p.z + d.z * 3.4, 6);
+        return;
+      }
+      case 'walkIn':
+        if (this.walk(a, p.x + 1.2, p.z - 1.0, 1.4, dt) || Math.hypot(p.x - a.g.position.x, p.z - a.g.position.z) < 2.2) a.state = 'wait';
+        return;
+      case 'wait':
+        this.face(a, p.x, p.z);
+        if (this.canTalk()) { a.state = 'talk'; this.talkAuntie(a); }
+        return;
+      case 'lead': {
+        // 帶玩家去看界樁，走一段就回頭等玩家跟上
+        const st = AUNTIE_STAKE;
+        const far = Math.hypot(p.x - a.g.position.x, p.z - a.g.position.z) > 7;
+        if (far) { this.face(a, p.x, p.z); return; }
+        if (this.walk(a, st.x + 1.0, st.z + 0.8, 1.4, dt)) a.state = 'atStake';
+        return;
+      }
+      case 'atStake':
+        this.face(a, p.x, p.z);
+        if (Math.hypot(p.x - AUNTIE_STAKE.x, p.z - AUNTIE_STAKE.z) < 3.2 && this.canTalk()) { a.state = 'talk'; this.talkStake(a); }
+        return;
+      case 'listen':
+        this.face(a, p.x, p.z);
+        return;
+      case 'toBike': {
+        if (!sc) { if (this.walk(a, -9, 44, 1.5, dt)) this.remove(a); return; }
+        const side = new THREE.Vector3(Math.sin(sc.rotation.y), 0, Math.cos(sc.rotation.y)).multiplyScalar(-0.7);
+        if (this.walk(a, sc.position.x + side.x, sc.position.z + side.z, 1.5, dt)) {
+          mount(true);
+          a.state = 'rideAway';
+          a.path = [[-9, 40], [-9, 46.3], [-80, 46.3]];
+        }
+        return;
+      }
+      case 'rideAway': {
+        const path = a.path || [];
+        if (!path.length) { this.remove(a); return; }
+        if (rideTo(path[0][0], path[0][1], 7)) path.shift();
+        return;
+      }
+    }
   }
 
   private talkAuntie(a: Actor) {
     ui.faceSpeaker(a.g);
     ui.showDialog('騎車經過的阿姨', '少年仔，恁會曉測量喔？阮兜彼塊地的地界，你順紲共我看一下好無？<br><small>（你們會測量喔？我家那塊地的界線，順便幫我看一下好不好？）</small>', [
-      { text: '阿姨，地界要到地政事務所申請鑑界，我們不能私下看喔。', reply: '喔～要去地政事務所喔，好啦我明天去問。', score: 3, tag: '告訴阿姨要申請鑑界' },
-      { text: '好啊，我幫妳看一下。', reply: '（結果跟著阿姨走了半小時，還被留下來吃午餐。）', score: -2, tag: '私下幫阿姨看地界（不該這樣做）' },
-      { text: '不行，我們很忙。', reply: '……啊無就好。（阿姨不太高興地騎走了）', score: -1, tag: '直接拒絕阿姨' },
+      { id: 'ok', text: '阿姨，地界要到地政事務所申請鑑界，我們不能私下看喔。', reply: '喔～要去地政事務所喔，好啦我明天去問。', score: 3, tag: '告訴阿姨要申請鑑界' },
+      { id: 'help', text: '好啊，我幫妳看一下。', reply: '好好好！就在那邊而已，你跟我來！', score: -2, tag: '答應私下幫阿姨看地界' },
+      { id: 'no', text: '不行，我們很忙。', reply: '……啊無就好。（阿姨不太高興地走回機車）', score: -1, tag: '直接拒絕阿姨' },
     ], (o) => {
       this.h.addPR(o.score, o.tag);
-      a.state = 'leave'; a.t = 0;
+      if (o.id === 'help') {
+        this.placeStake();
+        a.state = 'lead'; a.t = 0;
+        ui.toast('跟著阿姨走，她要帶你去看界樁。', 'info', 3200);
+      } else { a.state = 'toBike'; a.t = 0; }
+      this.relock();
+    });
+  }
+
+  private placeStake() {
+    if (this.stake) return;
+    const sm = this.h.app.sceneManager;
+    const g = SM().buildFlagStake();
+    g.position.set(AUNTIE_STAKE.x, sm.heightAt(AUNTIE_STAKE.x, AUNTIE_STAKE.z), AUNTIE_STAKE.z);
+    sm.scene.add(g);
+    this.stake = g;
+  }
+
+  /** 到了界樁旁邊 */
+  private talkStake(a: Actor) {
+    ui.faceSpeaker(a.g);
+    ui.showDialog('騎車經過的阿姨', '就是這支啦！隔壁的講阮的界佇彼爿，你看是毋是予人偷徙過？<br><small>（就是這支！隔壁說我們的界在那邊，你看是不是被人偷移過？）</small>', [
+      { id: 'proper', text: '阿姨，界樁準不準要地政事務所用正式的圖資跟儀器鑑界，我這樣看不算數，也不能幫妳判定。',
+        reply: '喔……按呢我白帶你行一逝，歹勢歹勢。<br><small>（那我白帶你走一趟，不好意思。）</small>', score: 1, tag: '陪阿姨看界樁後，說明要申請鑑界（但已經耗掉一段時間）' },
+      { id: 'move', text: '看起來被移過，我幫妳拔起來插回去。',
+        reply: '（你把界樁拔起來……遠遠有人大喊：「喂！你在動我的界樁喔！」）', score: -4, tag: '私自移動界樁（界樁不能私自移動）' },
+      { id: 'guess', text: '應該沒問題啦，看起來是對的。',
+        reply: '好！按呢我就去共隔壁講，測量的講的！<br><small>（那我就去跟隔壁說，是測量的說的！）</small>', score: -3, tag: '隨口幫阿姨認界，被拿去當證據' },
+    ], (o) => {
+      this.h.addPR(o.score, o.tag);
+      ui.toast('（來回又花了十幾分鐘……）', 'info', 2500);
+      if (o.id === 'move') {
+        if (this.stake) { this.stake.position.x += 1.2; this.stake.rotation.z = 0.25; }
+        a.state = 'listen';
+        const n = this.spawn('neighbor', AUNTIE_STAKE.x - 16, AUNTIE_STAKE.z - 6);
+        n.state = 'rush';
+      } else { a.state = 'toBike'; a.t = 0; }
+      this.relock();
+    });
+  }
+
+  /** 鄰居衝過來：你動了他的界樁 */
+  private talkNeighbor(n: Actor) {
+    ui.faceSpeaker(n.g);
+    const aun = this.actors.find(x => x.kind === 'auntie');
+    ui.showDialog('隔壁田的阿伯', '你是誰？憑什麼動我的界樁！你哪個單位的？我要投訴！', [
+      { id: 'sorry', text: '對不起，我馬上插回原位。這要等地政事務所鑑界才準，我不該亂動。',
+        reply: '……哼，算你識相。（他盯著你把界樁插回去）', score: 0, tag: '動了界樁被鄰居抓到，道歉並放回原位' },
+      { id: 'blame', text: '是阿姨叫我弄的啦。',
+        reply: '（阿姨跟鄰居吵了起來，你被夾在中間……最後兩個人都說要投訴你們公司。）', score: -2, tag: '動了界樁被抓到，把責任推給阿姨' },
+    ], (o) => {
+      this.h.addPR(o.score, o.tag);
+      if (this.stake) { this.stake.position.x = AUNTIE_STAKE.x; this.stake.rotation.z = 0; }
+      n.state = 'leave'; n.t = 0;
+      if (aun) { aun.state = 'toBike'; aun.t = 0; }
       this.relock();
     });
   }
@@ -743,7 +903,11 @@ export class SiteEvents {
 
   obstacles(): { x: number; z: number; r: number; tag: string }[] {
     return [
-      ...this.actors.map(a => ({ x: a.g.position.x, z: a.g.position.z, r: a.kind === 'dog' ? 0.4 : 0.5, tag: a.kind === 'dog' ? '狗' : a.kind === 'kid' ? '小朋友' : a.kind === 'police' ? '警察' : '路人' })),
+      // 看不到的人不算 (例如阿姨騎上機車後，本人的模型藏起來了) → 改用機車的位置
+      ...this.actors.filter(a => a.g.visible || a.veh).map(a => {
+        const o = a.g.visible ? a.g.position : a.veh!.position;
+        return { x: o.x, z: o.z, r: a.kind === 'dog' ? 0.4 : a.g.visible ? 0.5 : 0.8, tag: a.kind === 'dog' ? '狗' : a.kind === 'kid' ? '小朋友' : a.kind === 'police' ? '警察' : !a.g.visible ? '機車' : '路人' };
+      }),
       ...this.bodies().map(b => ({ ...b, tag: '警車' })),
     ];
   }

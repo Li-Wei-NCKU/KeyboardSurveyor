@@ -47,7 +47,7 @@ class SurveyorGameApp {
                 }
                 btnAudioToggle.classList.toggle('is-off', this.isAudioMuted);
                 const lbl = btnAudioToggle.querySelector('.hud-key-label');
-                if (lbl) lbl.textContent = this.isAudioMuted ? '音效關' : '音效開';
+                if (lbl) lbl.textContent = this.isAudioMuted ? '靜音中' : '聲音開';
             };
         }
 

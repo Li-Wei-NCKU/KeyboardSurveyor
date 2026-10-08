@@ -55,10 +55,10 @@ export function buildSedan(color: number): THREE.Group {
   return g;
 }
 
-export function buildScooter(): THREE.Group {
+export function buildScooter(who?: { shirt: number; pants: number; skin?: number; body?: number }): THREE.Group {
   const sm = SM();
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xc62828, roughness: 0.35, metalness: 0.2 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: who?.body ?? 0xc62828, roughness: 0.35, metalness: 0.2 });
   g.add(sm.mk(sm.rbox(1.1, 0.3, 0.36, 0.08), bodyMat, -0.1, 0.55, 0));
   g.add(sm.mk(sm.rbox(0.5, 0.12, 0.3, 0.05), sm.M.black, -0.2, 0.76, 0));
   g.add(sm.rodBetween(new THREE.Vector3(0.5, 0.35, 0), new THREE.Vector3(0.38, 1.05, 0), 0.03, 0.03, sm.M.aluDark, 8));
@@ -67,7 +67,7 @@ export function buildScooter(): THREE.Group {
   const tire = new THREE.CylinderGeometry(0.22, 0.22, 0.1, 16).rotateX(Math.PI / 2);
   g.add(sm.mk(tire, sm.M.tire, 0.55, 0.22, 0));
   g.add(sm.mk(tire, sm.M.tire, -0.55, 0.22, 0));
-  const rider = buildPerson({ shirt: 0x1565c0, pants: 0x263238, hat: 'helmet' });
+  const rider = buildPerson({ shirt: who?.shirt ?? 0x1565c0, pants: who?.pants ?? 0x263238, hat: 'helmet', skin: who?.skin });
   // 屁股坐在座墊上 (座墊頂 ≈ 0.82，人物髖關節高 0.88)，腳往前踩踏板、手握龍頭
   rider.position.set(-0.24, -0.04, 0);
   rider.userData.legs.forEach((l: THREE.Object3D) => { l.rotation.z = 1.1; });
@@ -128,6 +128,11 @@ export function animateWalk(p: THREE.Group, t: number, speed: number) {
   const a = Math.sin(t * 7) * 0.5 * Math.min(1, speed);
   const legs = p.userData.legs as THREE.Object3D[], arms = p.userData.arms as THREE.Object3D[];
   legs[0].rotation.z = a; legs[1].rotation.z = -a;
+  // 手上有東西時手不擺：pose = 'carryFront' 兩手捧在胸前；'carryShoulder' 右手扶肩上的東西、左手提東西
+  const pose = p.userData.pose as string | undefined;
+  if (pose === 'carryFront') { arms[0].rotation.z = 1.15; arms[1].rotation.z = 1.15; arms[0].rotation.x = -0.2; arms[1].rotation.x = 0.2; return; }
+  if (pose === 'carryShoulder') { arms[1].rotation.z = 2.1; arms[1].rotation.x = 0; arms[0].rotation.z = -a * 0.2; arms[0].rotation.x = 0; return; }
+  arms[0].rotation.x = 0; arms[1].rotation.x = 0;
   arms[0].rotation.z = -a * 0.8; arms[1].rotation.z = a * 0.8;
 }
 

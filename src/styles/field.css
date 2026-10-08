@@ -683,3 +683,32 @@ body.rod-holding #level-book { display: block !important; }
 .rodhold.done .rh-msg { color: #1f7a45; font-weight: 900; font-size: 15px; }
 @keyframes rh-in { from { opacity: 0; transform: translate(-50%, 28px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 @keyframes rh-out { to { opacity: 0; transform: translate(-50%, 28px) scale(.96); } }
+/* 主角內心 OS */
+.thought {
+    position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 70; pointer-events: none;
+    padding: 10px 20px 10px 16px; border-radius: 22px; background: rgba(255, 255, 255, 0.94); color: #334155;
+    font: italic 700 18px var(--font-hand, var(--font-ui)); box-shadow: 0 6px 18px rgba(0,0,0,.3);
+    display: flex; align-items: center; gap: 8px; white-space: nowrap; animation: th-in .35s ease-out both;
+}
+.thought::after { content: ""; position: absolute; left: 34px; bottom: -14px; width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.94); box-shadow: -10px 10px 0 -3px rgba(255,255,255,.94); }
+.thought .th-dots { font-size: 22px; color: #94a3b8; }
+.thought.out { animation: th-out .45s ease-in forwards; }
+@keyframes th-in { from { opacity: .4; transform: translate(-50%, 10px) scale(.95); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes th-out { to { opacity: 0; transform: translate(-50%, -6px); } }
+/* 聲音設定 */
+.audio-backdrop { z-index: 120; }
+.audio-card { width: min(520px, calc(100vw - 32px)); padding: 18px 22px; }
+.au-row { display: grid; grid-template-columns: 130px 56px 1fr 40px; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed rgba(31,45,61,.18); font: 700 15px var(--font-ui); color: var(--ink); }
+.au-name small { display: block; font-weight: 500; font-size: 11px; color: #6b7280; margin-top: 2px; }
+.au-row input[type=range] { width: 100%; accent-color: #1f7a45; }
+.au-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.au-tog { padding: 4px 0; border-radius: 6px; border: 2px solid #1f7a45; background: #1f7a45; color: #fff; font: 800 13px var(--font-ui); cursor: pointer; }
+.au-tog.off { background: transparent; color: #8a8f98; border-color: #b8bcc4; }
+.au-note { font-size: 12px; color: #6b7280; margin: 10px 0 4px; }
+/* 主選單開著時，把遊戲中的手簿、按鍵提示、水準手簿等藏起來 */
+body:has(#main-menu) #mission-panel,
+body:has(#main-menu) #bottom-controls,
+body:has(#main-menu) #level-book,
+body:has(#main-menu) #field-hud,
+body:has(#main-menu) .hud-dest,
+body:has(#main-menu) #mouse-lock-status { visibility: hidden !important; }

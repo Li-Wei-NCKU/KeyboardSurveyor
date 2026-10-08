@@ -78,10 +78,16 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
         <button data-a="lv-warp">學弟立刻走到</button>
       </div>
       <div class="kd-row">
-        <button data-a="lv-police">警察馬上經過</button>
+        <button data-a="lv-police">警察馬上經過（照現況）</button>
         <button data-a="lv-truck">大貨車馬上經過</button>
         <button data-a="lv-kids">小朋友馬上來（交換後）</button>
         <button data-a="lv-wrong">學弟尺立錯（BM-1035）</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="lv-cop-none">警察來：有帶但沒擺</button>
+        <button data-a="lv-cop-nohave">警察來：沒帶也沒擺</button>
+        <button data-a="lv-cop-wrong">警察來：交通錐擺錯</button>
+        <button data-a="lv-cop-ok">警察來：交通錐擺對</button>
       </div>
       <label class="kd-check"><input type="checkbox" data-k="truth"${dbg.truth ? ' checked' : ''}> 望遠鏡裡顯示正確讀數</label>
       <p class="kd-note">阿伯和阿黃的台詞依上面「第一天的結果」決定；改完按「存檔」再觸發。機車、阿黃需要先架好儀器、學弟在立尺。小朋友依「第一天的結果」：被攔住→來幫忙顧尺墊，其他→來踢尺墊。</p>
@@ -98,6 +104,7 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
       <div class="kd-row">
         <button data-a="g-owner">地主／里長再來一次</button>
         <button data-a="g-police">地主報警，警車馬上來</button>
+        <button data-a="g-auntie">阿姨馬上騎車來（收工）</button>
       </div>
       <p class="kd-note">碰腳架事件會在定心定平完成後發生（先選阿黃或小朋友，再按一鍵架好）；地主在量完天線高後出現。</p>
     </section>` : ''}
@@ -138,6 +145,9 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
         lv.pr = loadProgress();
         if (!lv.pr.dog) { msg('「第一天的結果」裡阿黃是「沒遇到」，牠不會出現。先改成「撞到腳架」或「被攔住」並存檔。'); return; }
         lv.dogDone = false; close(); lv.maybeDog(); return;
+      case 'lv-cop-none': case 'lv-cop-nohave': case 'lv-cop-wrong': case 'lv-cop-ok':
+        if (!['site', 'observe'].includes(fd.phase)) { msg('要先到第二天的現場（「第二天：直接到現場」）。'); return; }
+        lv.debugPolice(a === 'lv-cop-none' ? 'none' : a === 'lv-cop-nohave' ? 'nohave' : a === 'lv-cop-wrong' ? 'wrong' : 'ok'); close(); return;
       case 'lv-police':
         lv.policeStage = 'wait'; lv.policeT = 0.1; msg(lv.cones ? '有擺交通錐：警車會巡邏經過。' : '沒擺交通錐：警車會停下來。'); return;
       case 'lv-truck':
@@ -168,6 +178,11 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
       case 'g-dog': fd.events.debugBump('dog'); msg('定心定平完成後，阿黃會衝過來。'); return;
       case 'g-kid': fd.events.debugBump('kid'); msg('定心定平完成後，小朋友會跑過來。'); return;
       case 'g-setup': msg(fd.debugSetupGnss()); return;
+      case 'g-auntie':
+        if (!['site', 'observe', 'packup'].includes(fd.phase)) { msg('要先到第一天的現場（「第一天：直接到現場」）。'); return; }
+        // 腳架有架就照正常流程收工 (設備擺回控制點旁)，沒架就直接切到收工階段
+        if (fd.phase !== 'packup') { if (fd.tripodSet) fd.onGnssDone({ score: 80 }); else fd.setPhase('packup'); }
+        fd.events.debugAuntie(); close(); return;
       case 'g-police': fd.events.debugPolice(); msg('地主報警了，警車出發。'); return;
       case 'g-owner': fd.events.debugOwner(); msg('量完天線高後，地主／里長會出現。'); return;
     }

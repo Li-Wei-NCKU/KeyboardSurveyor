@@ -2,6 +2,7 @@
  * 外業系統 DOM 介面：主選單、派工單、對話、成果報告書、提示條、底部鍵位
  */
 import { ITEMS } from './items';
+import { speak, hush } from './sound';
 import { COLS, ROWS, LAYERS, footprint, type TrunkGrid, type Placed } from './trunk';
 import type { ItemId } from './items';
 
@@ -33,8 +34,19 @@ export function toast(text: string, kind: 'info' | 'warn' | 'bad' | 'good' = 'in
   }
   const t = el('div', `toast toast-${kind}`, text);
   toastBox.appendChild(t);
+  // 有人在講話的提示：配上說話聲
+  if (/對講機/.test(text) && /「/.test(text)) speak('對講機', text.replace(/^.*?「/, ''));
+  else { const m = text.match(/^([^：「」（）]{1,10})：「(.*)/); if (m) speak(m[1], m[2]); }
   setTimeout(() => t.classList.add('out'), ms);
   setTimeout(() => t.remove(), ms + 400);
+}
+
+/** 主角內心 OS：畫面中下方的思考泡泡 */
+export function thought(text: string, ms = 4200) {
+  const t = el('div', 'thought', `<span class="th-dots">…</span>${text}`);
+  document.body.appendChild(t);
+  setTimeout(() => t.classList.add('out'), ms);
+  setTimeout(() => t.remove(), ms + 500);
 }
 
 // ------------------------------------------------------------------
@@ -60,8 +72,9 @@ export function showMainMenu(jobs: MenuJob[], onPick: (id: string) => void) {
         <span class="menu-choice-key"><kbd class="cap${i === 0 ? ' cap-accent' : ''}">${i + 1}</kbd></span>
       </button>`).join('')}
     </div>`;
-  box.insertAdjacentHTML('beforeend', '<p class="menu-foot"><button class="menu-load" type="button"><kbd class="cap">F7</kbd> 讀取存檔</button></p>');
+  box.insertAdjacentHTML('beforeend', '<p class="menu-foot"><button class="menu-load" type="button"><kbd class="cap">F7</kbd> 讀取存檔</button>　<button class="menu-load menu-audio" type="button"><kbd class="cap">M</kbd> 聲音設定</button></p>');
   (box.querySelector('.menu-load') as HTMLButtonElement).onclick = () => window.dispatchEvent(new Event('ks-load'));
+  (box.querySelector('.menu-audio') as HTMLButtonElement).onclick = (e) => { e.stopPropagation(); window.dispatchEvent(new Event('ks-audio')); };
   const bd = overlay('main-menu', box);
   bd.classList.add('menu-backdrop');
   const go = (act: string) => { window.removeEventListener('keydown', onKey, true); bd.remove(); onPick(act); };
@@ -131,6 +144,7 @@ export function showDialog(speaker: string, line: string, options: DialogOption[
     <ol class="dialog-options">${options.map((o, i) => `<li><button data-i="${i}"${o.disabled ? ' disabled' : ''}><kbd class="cap">${i + 1}</kbd><span>${o.text}${o.disabled ? `<small class="dialog-why">（${o.disabled}）</small>` : ''}</span></button></li>`).join('')}</ol>`;
   const bd = overlay('dialog-box', box);
   bd.classList.add('dialog-backdrop');
+  hush(); speak(speaker, line);
   let picked = false;
   const pick = (i: number) => {
     if (picked || !options[i] || options[i].disabled) return;
@@ -138,6 +152,7 @@ export function showDialog(speaker: string, line: string, options: DialogOption[
     window.removeEventListener('keydown', onKey, true);
     const o = options[i];
     box.innerHTML = `<div class="dialog-speaker">${speaker}</div><p class="dialog-line">${o.reply}</p><p class="dialog-hint">按任意鍵繼續</p>`;
+    hush(); speak(speaker, o.reply);
     const close = () => { window.removeEventListener('keydown', close, true); bd.remove(); onPick(o); };
     setTimeout(() => { window.addEventListener('keydown', close, true); bd.addEventListener('click', close); }, 250);
   };

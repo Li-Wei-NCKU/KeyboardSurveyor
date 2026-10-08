@@ -19,6 +19,7 @@ import * as ui from './ui';
 import * as sfx from './sfx';
 import { Navigator } from './nav';
 import { SiteEvents } from './siteEvents';
+import { ambient, menuMusic, gameMusic } from './sound';
 import { CarRadio } from './radio';
 import { JOBS, saveProgress, type JobId, type JobDef } from './jobs';
 import { LevelJob } from './levelJob';
@@ -101,6 +102,8 @@ export class FieldDay {
   // 生命週期
   // ================================================================
   start() {
+    menuMusic.stop();
+    gameMusic.start();
     const sm = this.app.sceneManager;
     sm.clearDynamicProps();
     sm.setVisibleFloatingPoints([]);
@@ -143,6 +146,8 @@ export class FieldDay {
 
   stop() {
     const sm = this.app.sceneManager;
+    ambient.set({ scene: 'off' }); ambient.update(0.016);
+    gameMusic.stop();
     document.body.classList.remove('mode-field');
     document.querySelectorAll('.field-modal').forEach(e => e.remove());
     this.dropHeld(true);
@@ -437,6 +442,14 @@ export class FieldDay {
     const p = this.app.player;
     this.truck.update(dt);
     dust.update(dt);
+    // 環境音：公司附近 / 野外；在車上小聲一點
+    {
+      const ref = this.inTruck ? this.truck.pos : p.position;
+      const nearYard = Math.hypot(ref.x - YARD.x, ref.z - YARD.z) < 45;
+      ambient.set({ scene: nearYard ? 'yard' : 'field', inTruck: this.inTruck, roadDist: Math.abs(ref.z - ROAD_Z) });
+      ambient.update(dt);
+      gameMusic.duck(this.inTruck && this.radio.status === 'playing');
+    }
 
     // 車流
     const truckOnRoad = Math.abs(this.truck.pos.z - ROAD_Z) < 3.6 ? { x: this.truck.pos.x, z: this.truck.pos.z } : null;
@@ -741,7 +754,14 @@ export class FieldDay {
     this.app.sceneManager.scene.remove(g.obj);
     this.unregister(g.obj);
     this.ground = this.ground.filter(x => x !== g);
+    this.shelfSpots.forEach(sp => { if (sp.uid === g.uid) sp.uid = null; });
     return true;
+  }
+
+  /** 公司貨架上 (或器材室地上) 某件設備的位置 */
+  yardItemPos(item: ItemId): THREE.Vector3 | null {
+    const g = this.ground.find(x => x.item === item && Math.hypot(x.obj.position.x - YARD.x, x.obj.position.z - YARD.z) < 25);
+    return g ? g.obj.position.clone() : null;
   }
 
   private loadTrunk(item: ItemId, col: number, row: number, layer: number, rot: boolean): Placed {
@@ -784,10 +804,32 @@ export class FieldDay {
   }
 
   /** 取出：開啟後斗配置圖，點選要拿的設備 */
-  private openUnload() {
+  openUnload() {
     if (Math.abs(this.truck.speed) > 0.3) return;
     this.truck.tailTarget = 1;
     ui.showTrunkView({ grid: this.grid, item: null, onTake: (p) => this.takeFromTrunk(p.uid) });
+  }
+
+  /** 測試工具：把某件設備從手上 / 地上 / 後斗拿掉 (不管有沒有被壓住) */
+  debugRemoveItem(item: ItemId, keepYard = false): boolean {
+    if (this.carrying === item) { this.consumeHeld(); return true; }
+    const g = this.ground.find(x => x.item === item && !(keepYard && Math.hypot(x.obj.position.x - YARD.x, x.obj.position.z - YARD.z) < 25));
+    if (g) { this.app.sceneManager.scene.remove(g.obj); this.unregister(g.obj); this.ground = this.ground.filter(x => x !== g); return true; }
+    const pl = this.grid.placed.find(p => p.item === item);
+    if (pl) {
+      this.grid.remove(pl);
+      const mdl = this.trunkMeshes.get(pl.uid);
+      if (mdl) { this.truck.bedItems.remove(mdl); this.unregister(mdl); this.trunkMeshes.delete(pl.uid); }
+      return true;
+    }
+    return false;
+  }
+
+  /** 測試工具：在公司貨架上放一件 (原本的格子優先) */
+  debugPutOnShelf(item: ItemId) {
+    if (this.yardItemPos(item)) return;
+    const spot = this.shelfSpots.find(s => s.item === item && s.uid === null) || this.shelfSpots.find(s => s.uid === null);
+    if (spot) spot.uid = this.spawnGround(item, spot.pos, spot.rotY);
   }
 
   private takeFromTrunk(uid: number) {
