@@ -91,6 +91,14 @@ export function buildItemModel(id: ItemId): THREE.Group {
       break;
     }
     case 'pole': {
+      if (id === 'rtk') {
+        // 黃色對中桿 + 頂端接收儀 (灰色圓盤) + 綁在桿上的手簿
+        g.add(sm.rodBetween(V(-len / 2, 0.03, 0), V(len / 2 - 0.1, 0.03, 0), 0.013, 0.013, colorMat(0xf2b705, 0.4), 12));
+        g.add(sm.mk(new THREE.CylinderGeometry(0.075, 0.08, 0.06, 24).rotateZ(Math.PI / 2), colorMat(0x6b7280, 0.4), len / 2 - 0.06, 0.08, 0));
+        g.add(sm.mk(sm.rbox(0.16, 0.03, 0.09, 0.01), sm.M.black, 0, 0.055, 0));
+        g.add(sm.mk(new THREE.BoxGeometry(0.12, 0.004, 0.07), colorMat(0x5aa9e6, 0.2), 0, 0.072, 0, true));
+        break;
+      }
       g.add(sm.rodBetween(V(-len / 2, 0.03, 0), V(len / 2 - 0.08, 0.03, 0), 0.0125, 0.0125, colorMat(0xd62828, 0.4), 12));
       for (let i = 0; i < 5; i++) g.add(sm.rodBetween(V(-len / 2 + 0.1 + i * 0.2, 0.03, 0), V(-len / 2 + 0.2 + i * 0.2, 0.03, 0), 0.013, 0.013, sm.M.white, 12));
       g.add(sm.rodBetween(V(len / 2 - 0.1, 0.045, 0), V(len / 2 - 0.02, 0.045, 0), 0.044, 0.044, sm.M.orange, 20));
@@ -122,6 +130,13 @@ export function buildItemModel(id: ItemId): THREE.Group {
         const coneMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, side: THREE.DoubleSide });
         g.add(sm.mk(new THREE.BoxGeometry(0.3, 0.025, 0.3), sm.M.black, 0, 0.0125, 0));
         for (let i = 0; i < 4; i++) g.add(sm.mk(new THREE.CylinderGeometry(0.02, 0.12, 0.3, 18, 1, true), coneMat, 0, 0.17 + i * 0.03, 0));
+      } else if (id === 'template') {
+        // 疊起來的木框條 + 遮板
+        const wood = colorMat(def.color, 0.85);
+        for (let i = 0; i < 4; i++) g.add(sm.mk(new THREE.BoxGeometry(len * 0.96, 0.02, 0.12), wood, 0, 0.012 + i * 0.022, (i % 2 ? 0.07 : -0.07)));
+        g.add(sm.mk(new THREE.BoxGeometry(len * 0.7, 0.012, wid * 0.8), colorMat(0xb98a55, 0.85), 0, 0.1, 0));
+        g.add(sm.mk(new THREE.BoxGeometry(0.2, 0.002, 0.2), sm.M.white, -len * 0.18, 0.107, -0.05, true));
+        g.add(sm.mk(new THREE.BoxGeometry(0.2, 0.002, 0.2), sm.M.black, len * 0.18, 0.107, 0.05, true));
       } else if (id === 'hammer') {
         g.add(sm.mk(sm.rbox(len * 0.8, 0.16, wid * 0.85, 0.015), colorMat(def.color, 0.4), 0, 0.08, 0));
         g.add(sm.rodBetween(V(-0.12, 0.2, 0), V(0.12, 0.2, 0), 0.01, 0.01, sm.M.black, 8));

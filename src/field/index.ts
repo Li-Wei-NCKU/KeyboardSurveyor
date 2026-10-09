@@ -4,7 +4,7 @@
 import type * as THREE from 'three';
 import type { GameApp, AnyObj } from './legacy';
 import { FieldDay } from './fieldDay';
-import { showMainMenu, setFaceHook } from './ui';
+import { showMainMenu, setFaceHook, installFieldbookToggle, toggleFieldbook } from './ui';
 import { faceObject } from './look';
 import { bench } from './bench';
 import { JOBS, loadProgress, type JobId } from './jobs';
@@ -19,6 +19,9 @@ import { openAudioPanel, closeAudioPanel } from './sound';
 
   // 聲音設定：M 鍵或右上角按鈕
   window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyJ' && !(e.target instanceof HTMLInputElement) && !document.querySelector('.field-modal')) {
+      e.preventDefault(); e.stopPropagation(); toggleFieldbook(); return;
+    }
     if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
       if (document.querySelector('.qte, .rodhold, .scope')) return;
       e.preventDefault(); e.stopPropagation(); openAudioPanel();
@@ -26,6 +29,7 @@ import { openAudioPanel, closeAudioPanel } from './sound';
   }, true);
   document.getElementById('btn-audio-settings')?.addEventListener('click', (e) => { e.stopPropagation(); openAudioPanel(); });
   window.addEventListener('ks-audio', () => openAudioPanel());
+  installFieldbookToggle();
 
   app.onExtraKey = (e: KeyboardEvent) => {
     if (app.currentLevelObj === field) return field.onKey(e);
@@ -38,6 +42,7 @@ import { openAudioPanel, closeAudioPanel } from './sound';
     showMainMenu([
       { id: 'gnss', name: JOBS.gnss.menuName, desc: JOBS.gnss.menuDesc, done: pr.day1Done },
       { id: 'level', name: JOBS.level.menuName, desc: JOBS.level.menuDesc, done: pr.day2Done, locked: pr.day1Done ? undefined : '完成第一天後解鎖' },
+      { id: 'gcp', name: JOBS.gcp.menuName, desc: JOBS.gcp.menuDesc, done: pr.day3Done, locked: pr.day2Done ? undefined : '完成第二天後解鎖' },
     ], (id) => { field.job = id as JobId; app.loadLevel('field'); });
   };
   (window as AnyObj).__showMainMenu = menu;

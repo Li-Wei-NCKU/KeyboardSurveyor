@@ -5,7 +5,8 @@
 export type ItemId =
   | 'gnss' | 'tripod' | 'tribrach' | 'toolbag'
   | 'level' | 'staff' | 'totalstation' | 'prism'
-  | 'drone' | 'paint' | 'water' | 'hammer' | 'plate' | 'cones';
+  | 'drone' | 'paint' | 'water' | 'hammer' | 'plate' | 'cones'
+  | 'template' | 'rtk' | 'battery';
 
 export type ItemKind = 'case' | 'tripod' | 'staff' | 'pole' | 'bag' | 'box' | 'water';
 
@@ -35,6 +36,9 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   water:        { id: 'water', name: '礦泉水（一箱）', w: 1, d: 1, heavy: true, kind: 'water', color: 0x8fc7ea, note: '24 瓶，夏天外業必備。' },
   hammer:       { id: 'hammer', name: '鐵鎚與鋼釘', w: 1, d: 1, heavy: false, kind: 'box', color: 0xb42318, note: '打釘用的工具箱。' },
   cones:        { id: 'cones', name: '交通錐（4 個）', w: 1, d: 1, heavy: false, kind: 'box', color: 0xf26b0f, note: '在路邊作業要擺，提醒來車減速。' },
+  template:     { id: 'template', name: '航測標模板', w: 1, d: 2, heavy: false, kind: 'box', color: 0xc99a62, note: '1.2 m 折疊木框，加一片擋白格用的遮板。' },
+  rtk:          { id: 'rtk', name: 'RTK 移動站', w: 1, d: 2, heavy: false, kind: 'pole', color: 0xf2b705, note: '對中桿、接收儀、手簿一組。' },
+  battery:      { id: 'battery', name: '無人機電池箱', w: 1, d: 1, heavy: false, kind: 'case', color: 0x37474f, note: '三顆電池，昨晚充飽了（應該吧）。' },
   plate:        { id: 'plate', name: '尺墊（兩個）', w: 1, d: 1, heavy: true, kind: 'box', color: 0x3a3f47, note: '鑄鐵尺墊，轉點時墊在標尺底下，免得尺陷進土裡。' },
 };
 

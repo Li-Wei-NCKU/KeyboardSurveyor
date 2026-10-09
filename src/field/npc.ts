@@ -128,10 +128,11 @@ export function animateWalk(p: THREE.Group, t: number, speed: number) {
   const a = Math.sin(t * 7) * 0.5 * Math.min(1, speed);
   const legs = p.userData.legs as THREE.Object3D[], arms = p.userData.arms as THREE.Object3D[];
   legs[0].rotation.z = a; legs[1].rotation.z = -a;
-  // 手上有東西時手不擺：pose = 'carryFront' 兩手捧在胸前；'carryShoulder' 右手扶肩上的東西、左手提東西
+  // 手上有東西時手不擺：pose = 'carryFront' 兩手捧在胸前；'carryShoulder' 右手扶肩上的東西、左手提東西；'carryHand' 左手提東西、右手照擺
   const pose = p.userData.pose as string | undefined;
   if (pose === 'carryFront') { arms[0].rotation.z = 1.15; arms[1].rotation.z = 1.15; arms[0].rotation.x = -0.2; arms[1].rotation.x = 0.2; return; }
   if (pose === 'carryShoulder') { arms[1].rotation.z = 2.1; arms[1].rotation.x = 0; arms[0].rotation.z = -a * 0.2; arms[0].rotation.x = 0; return; }
+  if (pose === 'carryHand') { arms[0].rotation.z = -a * 0.15; arms[0].rotation.x = -0.12; arms[1].rotation.x = 0; arms[1].rotation.z = a * 0.8; return; }
   arms[0].rotation.x = 0; arms[1].rotation.x = 0;
   arms[0].rotation.z = -a * 0.8; arms[1].rotation.z = a * 0.8;
 }

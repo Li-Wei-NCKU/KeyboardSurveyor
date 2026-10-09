@@ -73,8 +73,8 @@ export function buildYard(sm: SceneManager): { group: THREE.Group; spots: ShelfS
   const boardMat = new THREE.MeshStandardMaterial({ color: 0xc7c2b5, roughness: 0.8 });
   const levels = [0.12, 0.85, 1.55];
   const racks: { cx: number; items: (ItemId | null)[][] }[] = [
-    { cx: -3.6, items: [['tripod', 'staff'], ['gnss', 'tribrach', 'toolbag'], ['level', 'paint']] },
-    { cx: 2.4, items: [['prism', 'hammer'], ['plate', 'cones', null], [null, null]] },
+    { cx: -3.6, items: [['tripod', 'staff'], ['gnss', 'tribrach', 'toolbag'], ['level', 'paint', null]] },
+    { cx: 2.4, items: [['prism', 'hammer'], ['plate', 'cones', null], ['rtk', 'template', null]] },
   ];
   const rz = SZ1 - 0.55;
   racks.forEach(rk => {

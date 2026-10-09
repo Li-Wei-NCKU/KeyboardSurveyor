@@ -98,7 +98,7 @@ export function dismissWorkOrder() {
   woKeyHandler = null;
   document.getElementById('work-order')?.remove();
 }
-export function showWorkOrder(wo: { seq: string; item: string; place: string; spec: string; note: string }, onAccept: () => void) {
+export function showWorkOrder(wo: { seq: string; item: string; place: string; spec: string; note: string; gear?: string }, onAccept: () => void) {
   const box = el('div', 'paper workorder');
   const today = new Date();
   const d = `${today.getFullYear() - 1911} 年 ${today.getMonth() + 1} 月 ${today.getDate()} 日`;
@@ -112,6 +112,7 @@ export function showWorkOrder(wo: { seq: string; item: string; place: string; sp
       <tr><th>工作項目</th><td colspan="3">${wo.item}</td></tr>
       <tr><th>地點</th><td colspan="3">${wo.place}</td></tr>
       <tr><th>精度要求</th><td colspan="3">${wo.spec}</td></tr>
+      ${wo.gear ? `<tr><th>攜帶設備</th><td colspan="3">${wo.gear}</td></tr>` : ''}
       <tr><th>施測人員</th><td>你（工讀生）</td><th>派工</th><td class="hand">組長</td></tr>
       <tr><th>備註</th><td colspan="3" class="hand">${wo.note}</td></tr>
     </table>
@@ -165,7 +166,14 @@ export function showDialog(speaker: string, line: string, options: DialogOption[
 // 成果報告書
 // ------------------------------------------------------------------
 export interface ReportRow { label: string; detail: string; delta: number }
-export function showReport(rows: ReportRow[], total: number, title: string, comment: string, onDone: () => void) {
+export function showReport(rows: ReportRow[], total: number, title: string, comment: string, onDone: () => void, story?: { chain: { cause: string; effect: string }[]; alts: string[] }, doneLabel = '回主選單') {
+  const chain = story?.chain.slice(0, 9) || [];
+  const alts = (story?.alts || []).slice().sort(() => Math.random() - 0.5).slice(0, 3);
+  const storyHtml = chain.length || alts.length ? `
+    <div class="report-story">
+      ${chain.length ? `<h3>這一天的因果</h3><ul class="rs-chain">${chain.map(c => `<li><span>${c.cause}</span><i>→</i><b>${c.effect}</b></li>`).join('')}</ul>` : ''}
+      ${alts.length ? `<h3>如果當時……</h3><ul class="rs-alt">${alts.map(a => `<li>${a}</li>`).join('')}</ul>` : ''}
+    </div>` : '';
   const box = el('div', 'paper report');
   box.innerHTML = `
     <div class="paper-head"><h2>外業成果報告書</h2><span class="stamp stamp-${total >= 75 ? 'ok' : 'bad'}">${total >= 60 ? '准予驗收' : '退件'}</span></div>
@@ -174,11 +182,12 @@ export function showReport(rows: ReportRow[], total: number, title: string, comm
       ${rows.map(r => `<tr><td>${r.label}</td><td>${r.detail}</td><td class="num ${r.delta < 0 ? 'neg' : ''}">${r.delta > 0 ? '+' : ''}${r.delta}</td></tr>`).join('')}
       <tr class="total"><td>總分</td><td></td><td class="num">${total}</td></tr>
     </table>
+    ${storyHtml}
     <div class="report-verdict">
       <div class="report-title">考評：<strong>${title}</strong></div>
       <p class="hand">${comment}</p>
     </div>
-    <div class="paper-actions"><button class="btn-paper" id="rp-done"><kbd class="cap cap-accent">Enter</kbd> 回主選單</button></div>`;
+    <div class="paper-actions"><button class="btn-paper" id="rp-done"><kbd class="cap cap-accent">Enter</kbd> ${doneLabel}</button></div>`;
   const bd = overlay('field-report', box);
   const done = () => { window.removeEventListener('keydown', onKey, true); bd.remove(); onDone(); };
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') { e.stopPropagation(); done(); } };
@@ -332,7 +341,10 @@ const CTRL_WALK = `
   <div class="ctrl"><kbd class="cap cap-accent">E</kbd><span class="ctrl-label">拿起／互動</span></div>
   <div class="ctrl"><kbd class="cap">G</kbd><span class="ctrl-label">放下</span></div>
   <div class="ctrl"><kbd class="cap">F</kbd><span class="ctrl-label">喝水</span></div>
-  <div class="ctrl"><kbd class="cap">H</kbd><span class="ctrl-label">手冊</span></div>`;
+  <div class="ctrl"><kbd class="cap">H</kbd><span class="ctrl-label">手冊</span></div>
+  <div class="ctrl"><kbd class="cap">J</kbd><span class="ctrl-label">手簿</span></div>
+  <div class="ctrl gcp-only"><kbd class="cap cap-accent">Q</kbd><span class="ctrl-label">外業地圖</span></div>
+  <div class="ctrl gcp-only"><kbd class="cap">C</kbd><span class="ctrl-label">手機拍照</span></div>`;
 const CTRL_DRIVE = `
   <div class="ctrl"><kbd class="cap">W</kbd><span class="ctrl-label">油門</span></div>
   <div class="ctrl"><kbd class="cap">S</kbd><span class="ctrl-label">煞車／倒車</span></div>
@@ -439,3 +451,31 @@ export function setRadioPanel(st: { on: boolean; status: string; name: string; n
     });
   }
 }
+
+// ------------------------------------------------------------------
+// 左側外業手簿：可以收起來 / 打開 (J)
+// ------------------------------------------------------------------
+let fbUser = false;   // 玩家自己收起來了
+let fbForce = 0;      // 拍照等畫面暫時收起
+function fbApply() {
+  const p = document.getElementById('mission-panel');
+  if (!p) return;
+  const c = fbUser || fbForce > 0;
+  p.classList.toggle('collapsed', c);
+  const b = p.querySelector('.fb-toggle');
+  if (b) b.innerHTML = c ? '<kbd class="cap">J</kbd> 打開' : '<kbd class="cap">J</kbd> 收起';
+}
+export function installFieldbookToggle() {
+  const p = document.getElementById('mission-panel');
+  const cover = p?.querySelector('.fb-cover');
+  if (!cover || cover.querySelector('.fb-toggle')) return;
+  const b = el('button', 'fb-toggle');
+  b.type = 'button';
+  b.title = '收起／打開外業手簿 (J)';
+  b.onclick = (e) => { e.stopPropagation(); toggleFieldbook(); };
+  cover.appendChild(b);
+  fbApply();
+}
+export function toggleFieldbook() { fbUser = !fbUser; if (!fbUser) fbForce = 0; fbApply(); }
+/** 暫時收起 (拍照模式)；hide=false 時恢復玩家原本的狀態 */
+export function forceFieldbook(hide: boolean) { fbForce = Math.max(0, fbForce + (hide ? 1 : -1)); fbApply(); }

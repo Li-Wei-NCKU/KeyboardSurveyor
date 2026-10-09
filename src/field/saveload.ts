@@ -33,7 +33,7 @@ export function saveGame(app: GameApp, field: FieldDay) {
   if (cineActive()) { ui.toast('等這段過場結束再存檔。', 'warn'); return; }
   let state: AnyObj;
   try { state = field.snapshot(); } catch (err) { console.error(err); ui.toast('存檔失敗。', 'bad'); return; }
-  const day = field.job === 'gnss' ? 1 : 2;
+  const day = field.job === 'gnss' ? 1 : field.job === 'level' ? 2 : 3;
   const data = {
     format: FORMAT,
     version: VERSION,

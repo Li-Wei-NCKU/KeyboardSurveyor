@@ -9,6 +9,7 @@ import type { FieldDay } from './fieldDay';
 import { JOBS, loadProgress, saveProgress, type JobId } from './jobs';
 import type { ItemId } from './items';
 import * as ui from './ui';
+import { showEnding } from './ending';
 
 const dbg: AnyObj = ((window as AnyObj).__ksDebug = (window as AnyObj).__ksDebug || { truth: false });
 
@@ -47,8 +48,16 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
       <label>阿伯　${sel('uncle', [['', '沒遇到阿伯'], ['explain', '好好解釋'], ['order', '出示派工單'], ['lie', '說要開路（騙他）'], ['secret', '說是國家機密'], ['ignore', '不理他']], pr.uncle)}</label>
       <label>阿黃　${sel('dog', [['', '沒遇到'], ['stopped', '被攔住'], ['bumped', '撞到腳架']], pr.dog)}</label>
       <label>小朋友 ${sel('kids', [['', '沒遇到'], ['stopped', '被攔住'], ['bumped', '摸了腳架']], pr.kids)}</label>
+      <label>地主／里長 ${sel('owner1', [['', '沒處理'], ['doc', '拿公文'], ['talk', '口頭說明'], ['sorry', '道歉'], ['argue', '頂撞（叫警察）']], pr.owner1 || '')}</label>
+      <label>阿姨地界 ${sel('auntie1', [['', '沒遇到'], ['ok', '教她申請鑑界'], ['no', '拒絕'], ['proper', '陪看後說要鑑界'], ['guess', '隨口認界'], ['move-sorry', '動界樁後道歉'], ['move-blame', '動界樁推給阿姨']], pr.auntie1 || '')}</label>
+      <h4>第二天的結果（影響第三天）</h4>
+      <label>阿伯回訪 ${sel('uncle2', [['', '沒回訪'], ['a', '道歉／說實話／好好聊'], ['b', '沒有']], pr.uncle2 || '')}</label>
+      <label>帶學弟 ${sel('mentor2', [['0', '普通'], ['2', '有好好教'], ['-2', '都沒教']], String(Math.max(-2, Math.min(2, Math.round((pr.mentor2 || 0) / 2) * 2))))}</label>
+      <p class="kd-note">第三天的起始人情：沒有第三天存檔時，由上面兩天推出來（阿伯 = 第一天的阿伯；村民看地主／里長、阿姨、亂說開路）。「第三天的人情」按鈕會蓋過這個。</p>
       <div class="kd-row">
         <button data-a="save">存檔並解鎖第二天</button>
+        <button data-a="save3">存檔並解鎖第三天（清除第三天人情）</button>
+        <button data-a="ending">直接看尾聲</button>
         <button data-a="reset" class="kd-ghost">清除進度</button>
       </div>
     </section>
@@ -61,6 +70,11 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
       <div class="kd-row">
         <button data-a="go-level">第二天：從頭</button>
         <button data-a="site-level">第二天：直接到現場</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="go-gcp">第三天：從頭</button>
+        <button data-a="site-gcp">第三天：直接到現場</button>
+        <button data-a="unlock3">解鎖第三天</button>
       </div>
       <p class="kd-note">「直接到現場」會把當天需要的設備自動裝上後斗、車停好；路上的東西都跳過。</p>
     </section>
@@ -92,6 +106,57 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
       <label class="kd-check"><input type="checkbox" data-k="truth"${dbg.truth ? ' checked' : ''}> 望遠鏡裡顯示正確讀數</label>
       <p class="kd-note">阿伯和阿黃的台詞依上面「第一天的結果」決定；改完按「存檔」再觸發。機車、阿黃需要先架好儀器、學弟在立尺。小朋友依「第一天的結果」：被攔住→來幫忙顧尺墊，其他→來踢尺墊。</p>
     </section>` : ''}
+    ${inField && job === 'gcp' ? `
+    <section>
+      <h4>第三天現場</h4>
+      <div class="kd-row">
+        <button data-a="gc-quick">佈標／RTK 畫面：直接完成</button>
+        <button data-a="gc-rtk">每點補上 RTK 和照片</button>
+        <button data-a="gc-here">準心這裡直接佈一個標</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-good">一鍵佈好 5 點（好位置）</button>
+        <button data-a="gc-bad">一鍵佈好 5 點（全踩坑）</button>
+        <button data-a="gc-done">佈標完成，收工</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-ev-farmer">田主阿伯（對最後一個標）</button>
+        <button data-a="gc-ev-keeper">廟公（對最後一個標）</button>
+        <button data-a="gc-ev-dog">阿黃踩最後一個標</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-ev-tractor">鐵牛車開進農路</button>
+        <button data-a="gc-ev-bus">進香團遊覽車</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-ev-rumor">村民問「是不是要徵收」</button>
+        <button data-a="gc-ev-crowd">鄉親圍觀最近的標</button>
+        <button data-a="gc-ev-kick">圍觀的人踩到沒乾的標</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-ev-parking">路邊停車（停在農路的標上）</button>
+        <button data-a="gc-ev-chief">里長打電話到公司</button>
+        <button data-a="gc-hammer">收工時學弟一定忘鐵鎚</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-fly">航拍直接完成</button>
+        <button data-a="gc-eagle">飛行中：大冠鷲馬上來</button>
+        <button data-a="gc-v-grandma">飛行中：阿嬤</button>
+        <button data-a="gc-v-keeper">飛行中：廟公叫你移車</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-pool">重抽事件池</button>
+        <button data-a="gc-pool-all">事件池全開</button>
+        <button data-a="gc-keeper-friend">廟公變朋友（二樓看飛機）</button>
+      </div>
+      <div class="kd-row">
+        <button data-a="gc-rel-clear">人情：清除</button>
+        <button data-a="gc-rel-good">人情：全部處得好</button>
+        <button data-a="gc-rel-bad">人情：全部得罪</button>
+      </div>
+      <p class="kd-note">今天抽到的事件：<b>${fd.gcp.ev.poolText()}</b>。人情（存檔）：阿伯 ${loadProgress().rel3?.farmer || '—'}／廟公 ${loadProgress().rel3?.keeper || '—'}／村民 ${loadProgress().rel3?.village || '—'}（改人情後要重新「第三天：直接到現場」才生效）。</p>
+      <p class="kd-note">「全踩坑」：農路上、榕樹下、兩塊田裡、菜園。收工後開回公司就能看成果報告。學弟遞錯漆：第一個點四成、第二個點一定（學弟在旁邊才會）。事件每天從 8 個裡抽 3～4 個，F9 可以重抽或全開。</p>
+    </section>` : ''}
     ${inField && job === 'gnss' ? `
     <section>
       <h4>第一天現場</h4>
@@ -116,6 +181,15 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
   panel.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach(b => b.onclick = () => {
     const a = b.dataset.a!;
     switch (a) {
+      case 'save3':
+        saveProgress({ day1Done: true, day2Done: true, uncle: val('uncle'), dog: val('dog') as AnyObj, kids: val('kids') as AnyObj, owner1: val('owner1') as AnyObj, auntie1: val('auntie1'), uncle2: val('uncle2') as AnyObj, mentor2: Number(val('mentor2')) || 0, rel3: undefined });
+        msg('已存檔：第三天的起始人情會依第一、二天的結果。');
+        return;
+      case 'ending':
+        close();
+        if (fd?.gcp) showEnding(fd.gcp.endingFacts(), () => (window as AnyObj).__showMainMenu?.());
+        else showEnding({ rel: loadProgress().rel3 || { farmer: '', keeper: '', village: '' }, metKeeper: true, asst: '宏斌', mentor2: loadProgress().mentor2 || 0, sameAsst: true, serious: false, hammer: '', aeroOk: true }, () => (window as AnyObj).__showMainMenu?.());
+        return;
       case 'save':
         saveProgress({ day1Done: true, uncle: val('uncle'), dog: val('dog') as AnyObj, kids: val('kids') as AnyObj });
         if (lv) lv.pr = loadProgress();
@@ -123,13 +197,45 @@ function open(app: GameApp, field: FieldDay, showMenu: () => void) {
         if (!inField) { close(); showMenu(); }
         return;
       case 'reset':
-        saveProgress({ day1Done: false, day2Done: false, uncle: '', dog: '', kids: '' });
+        saveProgress({ day1Done: false, day2Done: false, day3Done: false, uncle: '', dog: '', kids: '' });
         msg('進度已清除。');
         return;
-      case 'go-gnss': case 'go-level':
-        close(); start(app, field, a === 'go-gnss' ? 'gnss' : 'level', false); return;
-      case 'site-gnss': case 'site-level':
-        close(); start(app, field, a === 'site-gnss' ? 'gnss' : 'level', true); return;
+      case 'go-gnss': case 'go-level': case 'go-gcp':
+        close(); start(app, field, a.slice(3) as JobId, false); return;
+      case 'site-gnss': case 'site-level': case 'site-gcp':
+        close(); start(app, field, a.slice(5) as JobId, true); return;
+      case 'unlock3':
+        saveProgress({ day1Done: true, day2Done: true });
+        msg('第二天標記完成，第三天已解鎖。');
+        if (!inField) { close(); showMenu(); }
+        return;
+      // ---- 第三天
+      case 'gc-quick': msg(fd.gcp.debugQuick()); return;
+      case 'gc-rtk': msg(fd.gcp.debugRtkPhotos()); return;
+      case 'gc-here': {
+        const q = fd.gcp.groundAimFar?.() || null;
+        if (!q) { msg('準心要對著地面。'); return; }
+        msg(fd.gcp.debugPlace(q.x, q.z, 1)); return;
+      }
+      case 'gc-good': case 'gc-bad':
+        if (!['site', 'observe'].includes(fd.phase)) { msg('要先到第三天的現場（「第三天：直接到現場」）。'); return; }
+        msg(fd.gcp.debugAuto(a === 'gc-good' ? 'good' : 'bad')); return;
+      case 'gc-done': fd.gcp.debugFinish(); close(); return;
+      case 'gc-fly': close(); msg(fd.gcp.debugFly()); return;
+      case 'gc-eagle': msg(fd.gcp.uav.debugEagle()); close(); return;
+      case 'gc-hammer': (window as AnyObj).__forgetHammer = true; msg('收工時學弟一定會把鐵鎚忘在某個標旁邊。'); return;
+      case 'gc-v-grandma': msg(fd.gcp.uav.debugVisit('grandma')); close(); return;
+      case 'gc-v-keeper': msg(fd.gcp.uav.debugVisit('keeper')); close(); return;
+      case 'gc-pool': fd.gcp.ev.drawPool(); msg(`事件池：${fd.gcp.ev.poolText()}`); return;
+      case 'gc-pool-all': fd.gcp.ev.pool = new Set(['dog', 'farmer', 'tractor', 'temple', 'eagle', 'grandma', 'rumor', 'parking']); msg(`事件池：${fd.gcp.ev.poolText()}`); return;
+      case 'gc-keeper-friend': fd.gcp.ev.keeperFriend = true; fd.gcp.ev.keeperAnnoyed = false; msg('廟公變朋友了：飛的時候會在二樓幫看老鷹。'); return;
+      case 'gc-rel-clear': saveProgress({ rel3: { farmer: '', keeper: '', village: '' } }); msg('人情清除。'); return;
+      case 'gc-rel-good': saveProgress({ rel3: { farmer: 'good', keeper: 'good', village: 'good' } }); msg('人情：全部處得好。'); return;
+      case 'gc-rel-bad': saveProgress({ rel3: { farmer: 'bad', keeper: 'bad', village: 'bad' } }); msg('人情：全部得罪。'); return;
+      case 'gc-ev-rumor': case 'gc-ev-crowd': case 'gc-ev-kick': case 'gc-ev-parking': case 'gc-ev-chief':
+      case 'gc-ev-farmer': case 'gc-ev-keeper': case 'gc-ev-dog': case 'gc-ev-tractor': case 'gc-ev-bus': case 'gc-ev-storm': case 'gc-ev-rain':
+        if (!['site', 'observe', 'packup'].includes(fd.phase)) { msg('要先到第三天的現場。'); return; }
+        msg(fd.gcp.ev.debug(a.slice(6))); return;
       // ---- 第二天
       case 'lv-uncle':
         lv.pr = loadProgress(); lv.uncleDone = false;
@@ -205,6 +311,7 @@ function start(app: GameApp, field: FieldDay, job: JobId, toSite: boolean) {
   fd.setPhase('prep');
   // 從貨架拿走需要的設備，直接放進後斗
   JOBS[job].required.forEach((it: ItemId) => {
+    if (fd.grid.has(it)) return;
     const g = fd.ground.find((x: AnyObj) => x.item === it);
     if (g) {
       app.sceneManager.scene.remove(g.obj);
@@ -217,7 +324,7 @@ function start(app: GameApp, field: FieldDay, job: JobId, toSite: boolean) {
   });
   const park = JOBS[job].park;
   fd.enterTruck();
-  fd.truck.setPose(park.x, park.z, job === 'gnss' ? -Math.PI / 2 : 0);
+  fd.truck.setPose(park.x, park.z, job === 'gnss' ? -Math.PI / 2 : job === 'gcp' ? 0 : 0);
   fd.truck.speed = 0;
   fd.phase = 'toSite';
   fd.exitTruck();

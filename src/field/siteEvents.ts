@@ -21,6 +21,7 @@ import { buildPerson, buildDog, animateWalk, animateDog, buildScooter, ROAD_Z } 
 import { SM } from './legacy';
 import * as ui from './ui';
 import * as sfx from './sfx';
+import { tell, whatIf } from './story';
 
 export interface EventHost {
   app: GameApp;
@@ -97,6 +98,11 @@ export class SiteEvents {
     this.callPolice(o.kind === 'chief' ? '里長' : '地主', 0.5);
   }
 
+  /** 跨天記錄 (存進 Progress) */
+  owner1: '' | 'doc' | 'talk' | 'sorry' | 'argue' = '';
+  owner1Chief = false;
+  auntie1 = '';
+  boss1 = '';
   constructor(private h: EventHost) {}
 
   reset() {
@@ -116,6 +122,7 @@ export class SiteEvents {
     this.bumps = [];
     this.tiltTarget = 0;
     this.dogOutcome = this.kidsOutcome = '';
+    this.owner1 = ''; this.owner1Chief = false; this.auntie1 = ''; this.boss1 = '';
     setThreat(this.h.app, []);
   }
 
@@ -139,7 +146,7 @@ export class SiteEvents {
   snapshot(): AnyObj {
     return {
       time: this.time, uncleChoice: this.uncleChoice, uncleTimer: this.uncleTimer, teaTimer: this.teaTimer,
-      bumpDone: this.bumpDone, ownerDone: this.ownerDone, auntieDone: this.auntieDone, callTimer: this.callTimer, callDone: this.callDone,
+      owner1: this.owner1, owner1Chief: this.owner1Chief, auntie1: this.auntie1, boss1: this.boss1, bumpDone: this.bumpDone, ownerDone: this.ownerDone, auntieDone: this.auntieDone, callTimer: this.callTimer, callDone: this.callDone,
       blockedUntil: this.blockedUntil, blockedWhy: this.blockedWhy, bumps: this.bumps, tiltTarget: this.tiltTarget,
       dogOutcome: this.dogOutcome, kidsOutcome: this.kidsOutcome,
       policeTimer: this.policeTimer, policeDone: this.policeDone, policeArgued: this.policeArgued,
@@ -150,7 +157,7 @@ export class SiteEvents {
 
   restore(s: AnyObj, phase: string) {
     this.reset();
-    const keys = ['time', 'uncleChoice', 'uncleTimer', 'teaTimer', 'bumpDone', 'ownerDone', 'auntieDone', 'callTimer', 'callDone', 'blockedUntil', 'blockedWhy', 'bumps', 'tiltTarget', 'dogOutcome', 'kidsOutcome', 'policeTimer', 'policeDone', 'policeArgued'];
+    const keys = ['time', 'uncleChoice', 'uncleTimer', 'teaTimer', 'bumpDone', 'ownerDone', 'auntieDone', 'callTimer', 'callDone', 'blockedUntil', 'blockedWhy', 'bumps', 'tiltTarget', 'dogOutcome', 'kidsOutcome', 'policeTimer', 'policeDone', 'policeArgued', 'owner1', 'owner1Chief', 'auntie1', 'boss1'];
     keys.forEach(k => { if (s[k] !== undefined) (this as AnyObj)[k] = s[k]; });
     let firstKid = true;
     (s.actors || []).forEach((o: AnyObj) => {
@@ -372,6 +379,7 @@ export class SiteEvents {
               ui.toast('你擋在腳架前面，阿黃緊急煞車……搖搖尾巴跑走了。', 'good', 3000);
               bark(3, 1, true);
               this.h.addPR(1, '跑到腳架前擋住阿黃');
+              tell('阿黃衝過來時，跑到腳架前擋住', '牠緊急煞車跑走，腳架沒事');
               if (!this.dogOutcome) this.dogOutcome = 'stopped';
               a.state = 'stopped'; a.t = 0;
               return;
@@ -381,6 +389,8 @@ export class SiteEvents {
             if (a.kind === 'dog') this.guard?.hide();
             if (a.state === 'rush') {
               if (a.kind === 'dog') this.dogOutcome = 'bumped'; else this.kidsOutcome = 'bumped';
+              tell(a.kind === 'dog' ? '阿黃衝過來時沒有擋' : '小朋友衝過來時沒有攔', '腳架被碰歪，要重新定心定平');
+              whatIf(a.kind === 'dog' ? '如果及時站到腳架前的黃圈裡，阿黃會自己煞車跑走。' : '如果攔下小朋友、好好跟他們說，他們隔天還會來幫忙。');
               this.bump(a.kind === 'dog' ? '土狗撞到腳架' : '小朋友摸了腳架'); a.state = 'linger'; a.t = 0;
             }
             else { a.state = 'linger'; a.t = 0; }
@@ -473,6 +483,17 @@ export class SiteEvents {
     ], (o) => {
       this.uncleChoice = (o.id || '') as UncleChoice;
       this.h.addPR(o.score, o.tag);
+      const T: Record<string, [string, string]> = {
+        explain: ['跟阿伯好好說明在做控制點檢測', '阿伯放心了，等一下還端冰烏龍茶來請你'],
+        order: ['拿派工單給阿伯看', '阿伯看到公文就放心走了'],
+        lie: ['跟阿伯亂說這裡要開高速公路', '阿伯跑去叫里長，換里長親自來問'],
+        secret: ['跟阿伯說「國家機密」', '阿伯拍照 PO 上地方社團'],
+        ignore: ['假裝沒聽到阿伯的問題', '阿伯站在旁邊盯著你看了很久'],
+      };
+      const t = T[o.id || ''];
+      if (t) tell(t[0], t[1]);
+      if (o.id === 'lie' || o.id === 'secret' || o.id === 'ignore') whatIf('如果跟阿伯好好說明（或拿派工單給他看），他會請你喝茶，而且會記得你這個人。');
+      else whatIf('如果跟阿伯亂說要開高速公路，他會跑去把里長叫來。');
       a.state = o.id === 'ignore' ? 'stay' : o.id === 'secret' ? 'photo' : 'leave';
       a.t = 0;
       if (o.id === 'secret') phonePhoto(this.h.app.sceneManager.scene, a.g, 3, () => { a.state = 'leave'; a.t = 0; });
@@ -518,6 +539,12 @@ export class SiteEvents {
         score: -5, tag: chief ? '頂撞里長，對方叫警察，停工很久' : '頂撞地主，對方叫警察，停工很久' },
     ], (o) => {
       this.h.addPR(o.score, o.tag);
+      this.owner1 = (o.id || '') as SiteEvents['owner1']; this.owner1Chief = chief;
+      const who = chief ? '里長' : '地主';
+      if (o.id === 'doc') tell(`${who}來問時拿出公文`, `${who}看了就讓你們繼續做`);
+      if (o.id === 'talk') { tell(`${who}來問時只用嘴巴說明`, `${who}打電話查證，你們停工等他`); whatIf('如果工具袋帶在身邊、直接拿公文出來，幾分鐘就解決了。'); }
+      if (o.id === 'sorry') tell(`${who}來問時只是道歉`, `${who}勉強讓你們做，但不太高興`);
+      if (o.id === 'argue') { tell(`頂撞${who}`, '對方報警，警察到場做筆錄，停工很久'); whatIf('如果拿公文出來，連警察都不用來。'); }
       if (o.id === 'talk') { this.blockedUntil = this.time + 20; this.blockedWhy = `${speaker}在打電話查證`; a.state = 'stay'; }
       else if (o.id === 'argue') { a.state = 'stay'; this.callPolice(chief ? '里長' : '地主', 7); }
       else { a.state = 'leave'; a.t = 0; }
@@ -723,6 +750,9 @@ export class SiteEvents {
       { id: 'no', text: '不行，我們很忙。', reply: '……啊無就好。（阿姨不太高興地走回機車）', score: -1, tag: '直接拒絕阿姨' },
     ], (o) => {
       this.h.addPR(o.score, o.tag);
+      this.auntie1 = o.id || '';
+      if (o.id === 'ok') tell('告訴阿姨地界要申請鑑界', '阿姨自己去地政事務所問，你準時收工');
+      if (o.id === 'no') { tell('直接拒絕阿姨', '阿姨不太高興地走了'); whatIf('如果告訴阿姨要去地政事務所申請鑑界，她會很感謝你。'); }
       if (o.id === 'help') {
         this.placeStake();
         a.state = 'lead'; a.t = 0;
@@ -753,6 +783,10 @@ export class SiteEvents {
         reply: '好！按呢我就去共隔壁講，測量的講的！<br><small>（那我就去跟隔壁說，是測量的說的！）</small>', score: -3, tag: '隨口幫阿姨認界，被拿去當證據' },
     ], (o) => {
       this.h.addPR(o.score, o.tag);
+      this.auntie1 = o.id || '';
+      whatIf('如果一開始就跟阿姨說要申請鑑界，就不用陪她跑這一趟。');
+      if (o.id === 'proper') tell('陪阿姨去看界樁', '白跑一趟，最後還是請她申請鑑界');
+      if (o.id === 'guess') tell('隨口幫阿姨認界', '阿姨拿「測量的說的」去跟隔壁吵');
       ui.toast('（來回又花了十幾分鐘……）', 'info', 2500);
       if (o.id === 'move') {
         if (this.stake) { this.stake.position.x += 1.2; this.stake.rotation.z = 0.25; }
@@ -775,6 +809,8 @@ export class SiteEvents {
         reply: '（阿姨跟鄰居吵了起來，你被夾在中間……最後兩個人都說要投訴你們公司。）', score: -2, tag: '動了界樁被抓到，把責任推給阿姨' },
     ], (o) => {
       this.h.addPR(o.score, o.tag);
+      this.auntie1 = o.id === 'sorry' ? 'move-sorry' : 'move-blame';
+      tell('私自移動界樁', o.id === 'sorry' ? '隔壁阿伯衝過來，你道歉插回去' : '阿姨跟隔壁吵起來，兩邊都說要投訴你們公司');
       if (this.stake) { this.stake.position.x = AUNTIE_STAKE.x; this.stake.rotation.z = 0; }
       n.state = 'leave'; n.t = 0;
       if (aun) { aun.state = 'toBike'; aun.t = 0; }
@@ -797,11 +833,13 @@ export class SiteEvents {
         return;
       }
       ui.showDialog('組長（來電）', '你知道你被 PO 上地方社團了嗎？「測量員說是國家機密」，下面留言兩百多則……', [
-        { text: '對不起，下次會好好跟民眾說明。', reply: '……嗯，回來再說。下次遇到民眾，派工單拿出來給人家看就好。', score: 1, tag: '組長來電：道歉' },
-        { text: '那是阿伯自己亂 PO 的。', reply: '……回來寫一份檢討。', score: -2, tag: '組長來電：推給阿伯，要寫檢討' },
-        { text: '有沒有很紅？', reply: '…………（組長直接掛電話）', score: -1, tag: '組長來電：問有沒有很紅' },
+        { id: 'sorry', text: '對不起，下次會好好跟民眾說明。', reply: '……嗯，回來再說。下次遇到民眾，派工單拿出來給人家看就好。', score: 1, tag: '組長來電：道歉' },
+        { id: 'blame', text: '那是阿伯自己亂 PO 的。', reply: '……回來寫一份檢討。', score: -2, tag: '組長來電：推給阿伯，要寫檢討' },
+        { id: 'joke', text: '有沒有很紅？', reply: '…………（組長直接掛電話）', score: -1, tag: '組長來電：問有沒有很紅' },
       ], (o) => {
         this.callDone = true;
+        this.boss1 = o.id || '';
+        tell('被 PO 上社團後組長來電，你' + (o.id === 'sorry' ? '道歉' : o.id === 'blame' ? '推給阿伯' : '問有沒有很紅'), o.id === 'sorry' ? '組長教你下次拿派工單給民眾看' : o.id === 'blame' ? '要回公司寫檢討' : '組長直接掛電話');
         this.ringing = false;
         this.h.addPR(o.score, o.tag);
         this.h.radioResume();
@@ -890,6 +928,7 @@ export class SiteEvents {
   private kidQuiet(a: Actor) {
     {
       this.h.addPR(1, '耐心擋下很盧的小朋友');
+      tell('耐心攔下很盧的小朋友', '他們聽你講完才走，腳架沒被碰');
       // 先站著聽你說，講完才走
       this.actors.filter(x => x.kind === 'kid').forEach(k => { k.state = 'listen'; k.t = 0; });
       if (!this.kidsOutcome) this.kidsOutcome = 'stopped';

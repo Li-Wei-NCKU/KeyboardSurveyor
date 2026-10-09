@@ -9,7 +9,7 @@ export type TurnDir = 'left' | 'right' | 'straight' | 'arrive';
 interface Maneuver { at: Pt; text: string; dir: TurnDir; idx?: number }
 interface Route { pts: Pt[]; maneuvers: Maneuver[] }
 
-export type RouteId = 'toSite' | 'return' | 'toLevel' | 'levelReturn';
+export type RouteId = 'toSite' | 'return' | 'toLevel' | 'levelReturn' | 'toGcp' | 'gcpReturn';
 export const ROUTES: Record<RouteId, Route> = {
   toSite: {
     pts: [[-150, 61], [-150, 55], [-149.3, 51.8], [-146, 49.8], [-120, 49.7], [-60, 49.7], [-16, 49.7], [-11.2, 48.6], [-9.4, 45.5], [-9.2, 36], [-9.2, 24], [-9.4, 17], [-9.5, 14]],
@@ -34,6 +34,23 @@ export const ROUTES: Record<RouteId, Route> = {
       { at: [-149.3, 51.8], text: '右轉上縣道（往東）', dir: 'right' },
       { at: [-11, 49.7], text: '直行經過產業道路口', dir: 'straight' },
       { at: [52, 52.4], text: '靠右停在路肩', dir: 'arrive' },
+    ],
+  },
+  // 第三天：出公司左轉往西，縣道北側農地 (福德祠農路)
+  toGcp: {
+    pts: [[-150, 61], [-150, 55], [-150.6, 51.6], [-153, 47.4], [-160, 46.3], [-200, 46.3], [-245, 46.3], [-253.5, 46.1], [-256.4, 44.6], [-257, 42.6], [-259.4, 41.0], [-261.6, 40.8]],
+    maneuvers: [
+      { at: [-150.6, 51.6], text: '左轉上縣道（往西，注意來車）', dir: 'left' },
+      { at: [-253.5, 46.1], text: '右轉進農路（福德祠指示牌）', dir: 'right' },
+      { at: [-261.6, 40.8], text: '停在路口旁的空地', dir: 'arrive' },
+    ],
+  },
+  gcpReturn: {
+    pts: [[-261.6, 40.8], [-258.6, 41.2], [-257, 43], [-256.2, 45.8], [-252, 49.5], [-245, 49.7], [-200, 49.7], [-160, 49.7], [-152, 50.2], [-150.3, 52.5], [-150, 55], [-150, 63.5]],
+    maneuvers: [
+      { at: [-256.2, 45.8], text: '左轉上縣道（往東，注意來車）', dir: 'left' },
+      { at: [-152, 50.2], text: '右轉進公司', dir: 'right' },
+      { at: [-150, 63.5], text: '停進白線停車格', dir: 'arrive' },
     ],
   },
   levelReturn: {
@@ -157,8 +174,9 @@ export class Navigator {
       const y0 = this.sm.heightAt(x, z);
       g.position.set(x, y0, z);
       g.rotation.y = rotY;
-      g.add(S.mk(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 10), S.M.alu, -0.9, 1.6, 0));
-      g.add(S.mk(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 10), S.M.alu, 0.9, 1.6, 0));
+      // 柱子在牌子背面 (牌面朝 +Z)
+      g.add(S.mk(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 10), S.M.alu, -0.9, 1.6, -0.09));
+      g.add(S.mk(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 10), S.M.alu, 0.9, 1.6, -0.09));
       const tex = S.canvasTex(512, 256, (c, w, h) => {
         c.fillStyle = color; c.fillRect(0, 0, w, h);
         c.strokeStyle = '#fff'; c.lineWidth = 8; c.strokeRect(10, 10, w - 20, h - 20);

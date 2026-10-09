@@ -7,6 +7,11 @@ import { audio } from './legacy';
 export interface QteOpts {
   speaker: string;
   lines: string[];          // 每一波小朋友說的話 (波數 = lines.length)
+  hint?: string;
+  /** 每過一關 (i = 第幾關) */
+  onStep?: (i: number) => void;
+  /** 時間放寬倍數 (有人先喊預警) */
+  slow?: number;
   onDone: (ok: boolean) => void;
 }
 
@@ -19,6 +24,8 @@ export function runQTE(o: QteOpts) {
   if (active) return;
   active = true;
   if (document.exitPointerLock) document.exitPointerLock();
+  // 已經在近距離操作 (例如無人機飛行中) 就不要在結束時把 bench-active 拿掉，否則鏡頭會被玩家搶回去
+  const hadBench = document.body.classList.contains('bench-active');
   document.body.classList.add('bench-active', 'qte-active');
   const root = document.createElement('div');
   root.className = 'qte';
@@ -27,7 +34,7 @@ export function runQTE(o: QteOpts) {
     <div class="qte-line"></div>
     <div class="qte-key"><kbd class="cap"></kbd><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" class="qte-ring"/></svg></div>
     <div class="qte-dots">${o.lines.map(() => '<i></i>').join('')}</div>
-    <div class="qte-hint">按出畫面上的鍵，把小朋友擋下來！</div>`;
+    <div class="qte-hint">${o.hint || '按出畫面上的鍵，把小朋友擋下來！'}</div>`;
   document.body.appendChild(root);
   const lineEl = root.querySelector('.qte-line') as HTMLElement;
   const keyEl = root.querySelector('.qte-key kbd') as HTMLElement;
@@ -47,7 +54,8 @@ export function runQTE(o: QteOpts) {
     if (!ok) audio()?.playClick?.();
     setTimeout(() => {
       root.remove();
-      document.body.classList.remove('bench-active', 'qte-active');
+      document.body.classList.remove('qte-active');
+      if (!hadBench) document.body.classList.remove('bench-active');
       active = false;
       o.onDone(ok);
     }, ok ? 500 : 900);
@@ -61,7 +69,7 @@ export function runQTE(o: QteOpts) {
     want = k;
     keyEl.textContent = k;
     keyEl.classList.remove('pop'); void keyEl.offsetWidth; keyEl.classList.add('pop');
-    limit = Math.max(0.9, 1.6 - round * 0.2) * ((window as unknown as { __qteSlow?: number }).__qteSlow || 1); // __qteSlow：測試用
+    limit = Math.max(0.9, 1.6 - round * 0.2) * ((window as unknown as { __qteSlow?: number }).__qteSlow || 1) * (o.slow || 1); // __qteSlow：測試用
     t0 = performance.now();
   };
 
@@ -83,6 +91,7 @@ export function runQTE(o: QteOpts) {
     if (k === want) {
       audio()?.playClick?.();
       dots[round]?.classList.add('ok');
+      o.onStep?.(round);
       round++;
       next();
     } else {

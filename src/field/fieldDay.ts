@@ -21,8 +21,11 @@ import { Navigator } from './nav';
 import { SiteEvents } from './siteEvents';
 import { ambient, menuMusic, gameMusic } from './sound';
 import { CarRadio } from './radio';
-import { JOBS, saveProgress, type JobId, type JobDef } from './jobs';
+import { JOBS, saveProgress, loadProgress, type JobId, type JobDef } from './jobs';
+import { resetStory, getStory, storySnapshot, storyRestore } from './story';
+import { showEnding } from './ending';
 import { LevelJob } from './levelJob';
+import { GcpJob } from './gcpJob';
 
 export type Phase = 'brief' | 'prep' | 'toSite' | 'site' | 'observe' | 'packup' | 'return' | 'done';
 
@@ -40,6 +43,10 @@ export class FieldDay {
   get title() { return this.J.title; }
   /** 第二天：水準 */
   lv!: LevelJob;
+  /** 第三天：航測控制點 */
+  gcp!: GcpJob;
+  /** 第二天以後的工作 (第一天用舊版 GNSS 關卡 + SiteEvents) */
+  get sub(): LevelJob | GcpJob | null { return this.job === 'level' ? this.lv : this.job === 'gcp' ? this.gcp : null; }
 
   phase: Phase = 'brief';
   private built = false;
@@ -94,7 +101,9 @@ export class FieldDay {
 
   /** 更新手簿面板 (今天的任務清單) */
   panel(step: Phase, hint: string) {
-    this.app.updateMissionPanel(this.title, this.J.tasks.map((t, i) => ({ id: i, text: t })), PHASE_STEP[step], hint);
+    let i = PHASE_STEP[step];
+    if (this.job === 'gcp' && i >= 5) i++; // 第三天多一項「下午航拍」
+    this.app.updateMissionPanel(this.title, this.J.tasks.map((t, k) => ({ id: k, text: t })), i, hint);
   }
   addPR(score: number, tag: string) { this.m.pr.push({ score, tag }); }
 
@@ -157,6 +166,7 @@ export class FieldDay {
     this.clearTrunk();
     this.events?.reset();
     this.lv?.reset();
+    this.gcp?.stopAll();
     document.body.classList.remove('thirsty');
     this.truck.group.visible = false;
     this.traffic.forEach(t => { t.group.visible = false; });
@@ -191,6 +201,7 @@ export class FieldDay {
     this.nav = new Navigator(sm);
     dust.init(sm.scene);
     this.lv = new LevelJob(this);
+    this.gcp = new GcpJob(this);
     this.events = new SiteEvents({
       app: this.app,
       phase: () => this.phase,
@@ -217,7 +228,9 @@ export class FieldDay {
     this.tripodSet = this.tribrachOn = this.receiverOn = this.toolbagOn = false;
     this.events.reset();
     this.lv.reset();
+    this.gcp.reset();
     this.m = { crashes: 0, crashLog: [], illegalPark: 0, honked: 0, forgot: new Set(), returnTrips: 0, atYardCounted: false, pr: [], gnssScore: 0, warnedLeft: false };
+    resetStory();
     this.water = 100; this.bottles = 24; this.thirstWarned = false; this.drinks = 0;
     document.body.classList.remove('thirsty');
     this.truck.setPose(TRUCK_HOME.x, TRUCK_HOME.z, TRUCK_HOME.heading);
@@ -245,7 +258,7 @@ export class FieldDay {
       return: '開回公司，停進停車格後下車交差。',
       done: '',
     };
-    if (ph !== 'observe' || this.job === 'level') this.panel(ph, hints[ph]);
+    if (ph !== 'observe' || this.job !== 'gnss') this.panel(ph, hints[ph]);
     // 目的地箭頭
     sm.dynamicArrows.slice().forEach((a: THREE.Object3D) => {
       if (a.userData.label && a.userData.label.startsWith('目的地')) {
@@ -268,7 +281,7 @@ export class FieldDay {
   }
 
   private startSite() {
-    if (this.job === 'level') { this.lv.startSite(); this.setPhase('site'); this.syncInteractives(); return; }
+    if (this.sub) { this.sub.startSite(); this.setPhase('site'); this.sub.refreshHint(); this.syncInteractives(); return; }
     const p = this.app.player;
     const pos = p.position.clone(), eul = p.euler.clone();
     const gnss = this.app.levelsMap.gnss;
@@ -290,7 +303,7 @@ export class FieldDay {
   snapshot(): AnyObj {
     if (bench.mode) bench.exit(false);
     if (levelScope.active) levelScope.close();
-    if (this.job === 'level') this.lv.prepareSave();
+    this.sub?.prepareSave();
     const p = this.app.player;
     const g = this.app.levelsMap.gnss;
     return {
@@ -305,6 +318,7 @@ export class FieldDay {
       trunk: this.grid.placed.map(pl => ({ item: pl.item, col: pl.col, row: pl.row, layer: pl.layer, rot: pl.rot })),
       water: this.water, bottles: this.bottles, drinks: this.drinks, radioHinted: this.radioHinted,
       score: { ...this.m, forgot: [...this.m.forgot] },
+      story: storySnapshot(),
       gnssSetup: { tripodSet: this.tripodSet, tribrachOn: this.tribrachOn, receiverOn: this.receiverOn, toolbagOn: this.toolbagOn },
       gnss: this.job === 'gnss' && g ? {
         currentStep: g.currentStep, screwA: g.screwA, screwB: g.screwB, screwC: g.screwC, shiftX: g.shiftX, shiftY: g.shiftY,
@@ -314,6 +328,7 @@ export class FieldDay {
       } : null,
       events: this.events.snapshot(),
       level: this.job === 'level' ? this.lv.snapshot() : null,
+      gcp: this.job === 'gcp' ? this.gcp.snapshot() : null,
     };
   }
 
@@ -340,6 +355,7 @@ export class FieldDay {
     this.time = s.time || 0;
     this.water = s.water ?? 100; this.bottles = s.bottles ?? 24; this.drinks = s.drinks || 0; this.radioHinted = !!s.radioHinted;
     this.m = { ...this.m, ...s.score, forgot: new Set(s.score?.forgot || []) };
+    storyRestore(s.story);
     const su = s.gnssSetup || {};
     this.tripodSet = !!su.tripodSet; this.tribrachOn = !!su.tribrachOn; this.receiverOn = !!su.receiverOn; this.toolbagOn = !!su.toolbagOn;
     const onSite = ['site', 'observe', 'packup'].includes(s.phase);
@@ -363,8 +379,12 @@ export class FieldDay {
       this.lv.restore(s.level || {});
       if (onSite) this.lv.startSite(true);
     }
+    if (this.job === 'gcp') {
+      this.gcp.restore(s.gcp || {});
+      if (onSite) this.gcp.startSite(true);
+    }
     this.setPhase(s.phase);
-    if (this.job === 'level' && ['site', 'observe'].includes(s.phase)) this.lv.refreshHint();
+    if (this.sub && ['site', 'observe'].includes(s.phase)) this.sub.refreshHint();
     if (this.job === 'gnss' && s.phase === 'observe') {
       const g = this.app.levelsMap.gnss;
       this.app.updateMissionPanel(g.title, g.getTasks(), g.currentStep, '讀檔完成，從上次的步驟繼續。');
@@ -399,7 +419,7 @@ export class FieldDay {
     this.events.onPackup();
   }
 
-  private finish() {
+  finish() {
     this.setPhase('done');
     this.exitTruck(true);
     const S = this.J.site;
@@ -407,6 +427,7 @@ export class FieldDay {
     const extras = this.grid.placed.filter(p => !this.J.required.includes(p.item) && !['drone', 'water', 'totalstation'].includes(p.item));
     const rows: ui.ReportRow[] = [];
     if (this.job === 'level') rows.push(this.lv.reportRow());
+    else if (this.job === 'gcp') rows.push(...this.gcp.reportRows());
     else {
       const gnssPts = Math.round(this.m.gnssScore * 0.4);
       rows.push({ label: 'GNSS 觀測品質', detail: `施測評分 ${this.m.gnssScore} / 100${this.events.bumps.length ? `；腳架被碰 ${this.events.bumps.length} 次（${this.events.bumps.join('、')}），重新定平` : ''}`, delta: gnssPts });
@@ -427,10 +448,19 @@ export class FieldDay {
     else if (total >= 60) { title = '助理工程師'; comment = '成果能交，但組長在辦公室嘆了口氣。'; }
     else { comment = '鍵盤上的測量很完美，現場……我們明天再來一次。'; }
     if (leftAtSite.some(g => g.item === 'tripod')) comment += this.job === 'gnss' ? '另外，腳架又留在田裡了。' : '另外，腳架留在路邊了。';
-    if (this.job === 'gnss') saveProgress({ day1Done: true, uncle: this.events.uncleSaid, dog: this.events.dogOutcome, kids: this.events.kidsOutcome });
-    else saveProgress({ day2Done: true });
+    if (leftAtSite.some(g => g.item === 'template' || g.item === 'hammer')) comment += '模板／鐵鎚還在田裡，阿伯應該會很開心。';
+    const scores = { ...(loadProgress().scores || {}) };
+    if (this.job === 'gnss') {
+      const e = this.events;
+      saveProgress({ day1Done: true, uncle: e.uncleSaid, dog: e.dogOutcome, kids: e.kidsOutcome, owner1: e.owner1, owner1Chief: e.owner1Chief, auntie1: e.auntie1, boss1: e.boss1, scores: { ...scores, d1: total } });
+    } else if (this.job === 'level') {
+      const x = this.lv.crossDay();
+      saveProgress({ day2Done: true, uncle2: x.uncle2, mentor2: x.mentor2, asst2: x.asst2, scores: { ...scores, d2: total } });
+    } else saveProgress({ day3Done: true, rel3: { ...this.gcp.ev.rel }, scores: { ...scores, d3: total } });
     ui.setHud({});
-    ui.showReport(rows, total, title, comment, () => this.app.levelManager && (window as AnyObj).__showMainMenu && (window as AnyObj).__showMainMenu());
+    const toMenu = () => this.app.levelManager && (window as AnyObj).__showMainMenu && (window as AnyObj).__showMainMenu();
+    const after = this.job === 'gcp' ? () => showEnding(this.gcp.endingFacts(), toMenu) : toMenu;
+    ui.showReport(rows, total, title, comment, after, getStory(), this.job === 'gcp' ? '看尾聲' : '回主選單');
   }
 
   // ================================================================
@@ -491,7 +521,7 @@ export class FieldDay {
     }
 
     if (this.job === 'gnss') this.events.update(dt);
-    else this.lv.update(dt);
+    else { this.lv.update(dt); this.gcp.update(dt); }
     this.updateWater(dt);
 
     // 導航 (備料時只在上車後顯示)
@@ -510,7 +540,7 @@ export class FieldDay {
     if (this.inTruck) {
       ui.setHud({ speedKmh: Math.abs(this.truck.speed) * 3.6, dest: this.destText() });
     } else {
-      ui.setHud({ holding: this.carrying ? ITEMS[this.carrying].name + (this.extraCarry ? `＋${ITEMS[this.extraCarry].name}` : '') : null, dest: ['toSite', 'return'].includes(this.phase) ? this.destText() : this.job === 'level' ? this.lv.destText() : null, water: this.water });
+      ui.setHud({ holding: this.carrying ? ITEMS[this.carrying].name + (this.extraCarry ? `＋${ITEMS[this.extraCarry].name}` : '') : null, dest: ['toSite', 'return'].includes(this.phase) ? this.destText() : this.sub ? this.sub.destText() : null, water: this.water });
     }
   }
 
@@ -522,7 +552,7 @@ export class FieldDay {
   }
 
   private collidePlayer() {
-    if (bench.mode || cineActive() || levelScope.active) return; // 儀器近距離操作 / 運鏡中，鏡頭不歸玩家
+    if (bench.mode || cineActive() || levelScope.active || document.body.classList.contains('bench-active')) return; // 儀器近距離操作 / 運鏡中，鏡頭不歸玩家
     const p = this.app.player;
     const { lx, lz } = this.truck.toLocalFlat(p.position.x, p.position.z);
     const hx = 2.85, hz = 1.15;
@@ -534,7 +564,7 @@ export class FieldDay {
       p.position.x = this.truck.pos.x + nlx * c + nlz * s;
       p.position.z = this.truck.pos.z - nlx * s + nlz * c;
     }
-    for (const o of [...this.yardColliders, ...(this.job === 'level' ? this.lv.bodies() : this.events.bodies())]) {
+    for (const o of [...this.yardColliders, ...(this.sub ? this.sub.bodies() : this.events.bodies()), ...(this.job !== 'gcp' ? this.gcp.bodies() : [])]) {
       const dx = p.position.x - o.x, dz = p.position.z - o.z, d = Math.hypot(dx, dz), min = o.r + 0.3;
       if (d < min && d > 1e-4) { p.position.x = o.x + dx / d * min; p.position.z = o.z + dz / d * min; }
     }
@@ -556,7 +586,7 @@ export class FieldDay {
     ui.setControls('drive');
     p.externalControl = (dt: number) => this.driveTick(dt);
     this.radio.resumeOnEnter();
-    if (this.job === 'level') this.lv.onEnterTruck();
+    this.sub?.onEnterTruck();
     if (!this.radioHinted) { this.radioHinted = true; ui.toast('要聽廣播嗎？按 R 打開收音機，B／N 上一台／下一台，L 電台清單。', 'info', 5000); }
   }
 
@@ -574,7 +604,8 @@ export class FieldDay {
     sm.benchmarks.forEach((b: THREE.Object3D) => { if (b.visible) obstacles.push({ x: b.position.x, z: b.position.z, r: 0.45, tag: '控制點' }); });
     this.yardColliders.forEach(c => obstacles.push({ ...c, tag: '器材室' }));
     this.traffic.forEach(t => obstacles.push({ x: t.x, z: t.z, r: t.kind === 'car' ? 1.7 : 0.9, tag: t.kind === 'car' ? '別人的車' : '機車' }));
-    (this.job === 'gnss' ? this.events.obstacles() : this.lv.obstacles()).forEach(o => obstacles.push(o));
+    (this.sub ? this.sub.obstacles() : this.events.obstacles()).forEach(o => obstacles.push(o));
+    if (this.job !== 'gcp') this.gcp.obstacles().forEach(o => obstacles.push(o));
 
     this.truck.drive(dt, {
       throttle: (k.forward ? 1 : 0) - (k.backward ? 1 : 0),
@@ -609,7 +640,7 @@ export class FieldDay {
     p.camera.position.copy(p.position);
     p.camera.quaternion.setFromEuler(p.euler);
     ui.setControls('walk');
-    if (this.job === 'level') this.lv.onExitTruck();
+    this.sub?.onExitTruck();
     if (silent) return;
 
     const tp = this.truck.pos;
@@ -619,7 +650,7 @@ export class FieldDay {
     }
     const arrived = this.job === 'gnss' ? Math.hypot(tp.x - CKSV.x, tp.z - CKSV.z) < 45 : Math.hypot(tp.x - this.J.park.x, tp.z - this.J.park.z) < 30 || Math.hypot(tp.x - this.J.site.x, tp.z - this.J.site.z) < 40;
     if (this.phase === 'toSite' && arrived) this.startSite();
-    else if (this.phase === 'return' && Math.hypot(tp.x - TRUCK_HOME.x, tp.z - TRUCK_HOME.z) < 6) this.finish();
+    else if (this.phase === 'return' && Math.hypot(tp.x - TRUCK_HOME.x, tp.z - TRUCK_HOME.z) < 6) { if (this.job === 'gcp') this.gcp.atOffice(); else this.finish(); }
     else if (this.phase === 'return' && Math.hypot(tp.x - YARD.x, tp.z - YARD.z) < 20) ui.toast('停進白線停車格裡再下車。', 'info');
   }
 
@@ -745,6 +776,32 @@ export class FieldDay {
     if (!spot) return false;
     this.loadTrunk(item, spot.col, spot.row, spot.layer, spot.rot);
     return true;
+  }
+
+  /** NPC 從後斗拿走某件設備 (不管有沒有被壓住，學弟自己會搬開再疊回去) */
+  npcTakeFromTrunk(item: ItemId): boolean {
+    const pl = this.grid.placed.find(p => p.item === item);
+    if (!pl) return false;
+    this.grid.remove(pl);
+    const mdl = this.trunkMeshes.get(pl.uid);
+    if (mdl) { this.truck.bedItems.remove(mdl); this.unregister(mdl); this.trunkMeshes.delete(pl.uid); }
+    return true;
+  }
+
+  /** NPC 把設備放回貨架 (原位優先) */
+  npcShelve(item: ItemId): boolean {
+    const free = this.shelfSpots.filter(s => s.uid === null);
+    const spot = free.find(s => s.item === item) || free[0];
+    if (!spot) return false;
+    spot.uid = this.spawnGround(item, spot.pos, spot.rotY);
+    return true;
+  }
+
+  /** 某件設備的貨架原位 (或任何空位) */
+  shelfPos(item: ItemId): THREE.Vector3 | null {
+    const free = this.shelfSpots.filter(s => s.uid === null);
+    const spot = free.find(s => s.item === item) || free[0];
+    return spot ? spot.pos.clone() : null;
   }
 
   /** NPC 從地上撿走某件設備 (不經過玩家的手) */
@@ -899,7 +956,7 @@ export class FieldDay {
       case 'trunk_item':
         return this.carrying ? `把${carryName}放上後斗` : `查看後斗（${this.grid.placed.length} 件設備）`;
     }
-    if (this.job === 'level') return this.lv.prompt(hit);
+    if (this.sub) return this.sub.prompt(hit);
     if (ud.type === 'npc') return this.events.promptFor(hit);
     if (!['site', 'observe'].includes(this.phase)) return null;
     const gnss = this.app.levelsMap.gnss;
@@ -940,7 +997,7 @@ export class FieldDay {
         if (this.carrying) this.openLoader(); else this.openUnload();
         return;
     }
-    if (this.job === 'level') { this.lv.interact(obj); return; }
+    if (this.sub) { this.sub.interact(obj); return; }
     if (ud.type === 'npc') { this.events.interact(obj); return; }
     if (ud.type === 'monument' && String(ud.label || '').includes('CKSV') && !this.tripodSet) {
       if (this.carrying !== 'tripod') { this.needItem('tripod'); return; }
@@ -990,19 +1047,19 @@ export class FieldDay {
   }
 
   getFreeInteractPrompt(): string | null {
-    if (this.inTruck || this.job !== 'level') return null;
-    return this.lv.freePrompt();
+    if (this.inTruck || !this.sub) return null;
+    return this.sub.freePrompt();
   }
 
   onFreeInteract() {
     if (this.inTruck) { this.exitTruck(); return; }
-    if (this.job === 'level' && this.lv.freeInteract()) return;
+    if (this.sub && this.sub.freeInteract()) return;
     if (this.carrying) this.dropHeld();
   }
 
   /** G 鍵 */
   onKey(e: KeyboardEvent): boolean {
-    if (this.job === 'level' && !this.inTruck && this.lv.onKey(e)) return true;
+    if (this.sub && !this.inTruck && this.sub.onKey(e)) return true;
     if (e.code === 'KeyG' && !this.inTruck && this.carrying) { this.dropHeld(); return true; }
     if (e.code === 'KeyF' && !this.inTruck && !['brief', 'done'].includes(this.phase)) { this.drink(); return true; }
     if (this.inTruck && e.code === 'KeyR') { this.radio.power(); return true; }

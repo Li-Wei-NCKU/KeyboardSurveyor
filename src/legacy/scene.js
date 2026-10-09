@@ -41,6 +41,9 @@ class SurveyScene {
         this.pathSegs = [];
         // 整平區 (公司倉庫場地)：地形在半徑內平滑壓平至中心高度
         this.flatZones = [{ x: -150, z: 68, r: 20, h: null }];
+        // 第三天航測現場 (公司出門左轉，縣道北側農地)：整片壓平，植被另外處理 (不影響其他地方的亂數擺放)
+        this.siteZones = [{ x: -250, z: 10, r: 50, h: null }];
+        this.siteRect = { x0: -295, x1: -205, z0: -30, z1: 44 };
         this.poleColliders = [];
 
         this.init();
@@ -113,6 +116,14 @@ class SurveyScene {
                 h = fz.h + (h - fz.h) * t;
             }
         }
+        if (this.siteZones) {
+            for (const fz of this.siteZones) {
+                if (fz.h === null) fz.h = this.rawHeightAt(fz.x, fz.z);
+                const d = Math.hypot(x - fz.x, z - fz.z);
+                const t = window.SurveyModels.smoothstep(fz.r, fz.r + 18, d);
+                h = fz.h + (h - fz.h) * t;
+            }
+        }
         return h;
     }
 
@@ -124,6 +135,12 @@ class SurveyScene {
         const h = SM.fbm(x * 0.012, z * 0.012) * 9 + SM.fbm(x * 0.045 + 100, z * 0.045) * 1.6;
         const far = SM.smoothstep(150, 330, Math.hypot(x, z)) * (16 + 22 * SM.fbm(x * 0.006 + 50, z * 0.006));
         return f * (h + Math.max(0, far));
+    }
+
+    /** 第三天現場範圍內 (植被不擺這裡，由現場自己建) */
+    inSite(x, z, m = 0) {
+        const R = this.siteRect;
+        return !!R && x > R.x0 - m && x < R.x1 + m && z > R.z0 - m && z < R.z1 + m;
     }
 
     distToPaths(x, z) {
@@ -595,7 +612,8 @@ class SurveyScene {
             const s = 0.9 + r() * 0.7;
             const m = SM.mat4(x, this.heightAt(x, z) - 0.2, z, 0, r() * 6, 0, s);
             const q = (x > 0 ? 1 : 0) + (z > 0 ? 2 : 0);
-            if (r() > 0.5) SM.coniferParts(r, 1, chunks[q], m); else SM.broadleafParts(r, 1, chunks[q], m);
+            const into = this.inSite(x, z, 6) ? [] : chunks[q];
+            if (r() > 0.5) SM.coniferParts(r, 1, into, m); else SM.broadleafParts(r, 1, into, m);
         }
         chunks.forEach(parts => {
             if (!parts.length) return;
@@ -611,6 +629,7 @@ class SurveyScene {
             const tp = [], fp = [];
             SM.palmParts(r, 0.9 + r() * 0.3, tp, fp);
             const m = SM.mat4(x, this.heightAt(x, z) - 0.1, z, 0, r() * 6, 0);
+            if (this.inSite(x, z, 4)) continue;
             tp.forEach(p => { p.matrix = m; trunkParts.push(p); });
             fp.forEach(p => { p.matrix = m; frondParts.push(p); });
         }
@@ -628,11 +647,19 @@ class SurveyScene {
             const g = SM.rockGeo(r, s);
             g.translate(x, this.heightAt(x, z) + s * 0.12, z);
             const shade = 0.42 + r() * 0.18;
+            if (this.inSite(x, z)) continue;
             rockParts.push({ geo: g, color: new THREE.Color().setRGB(shade, shade * 0.98, shade * 0.93, THREE.SRGBColorSpace) });
         }
         const rocks = new THREE.Mesh(SM.mergeColored(rockParts), SM.M.vertexFlat);
         rocks.castShadow = true; rocks.receiveShadow = true;
         this.scene.add(rocks);
+
+        // 隨機樹若落在第三天現場就移掉 (現場的樹由現場自己種)
+        this.trees = this.trees.filter(t => {
+            if (!this.inSite(t.position.x, t.position.z, 3)) return true;
+            this.scene.remove(t);
+            return false;
+        });
 
         this.buildGrass(r);
     }
@@ -726,6 +753,7 @@ class SurveyScene {
                 const x = Math.cos(a) * d, z = Math.sin(a) * d;
                 if (this.distToPaths(x, z) < 0.45) continue;
                 if (Math.abs(z - 48) < 4.6) continue;
+                if (this.inSite(x, z)) continue;
                 let bad = false;
                 for (const k of this.keepouts) {
                     const rr = (k.r > 4 ? 2.2 : 1.4);
